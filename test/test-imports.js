@@ -21,6 +21,7 @@ const ROOT = path.resolve(__dirname, "../demo");
 const IMPORT_MAP = {
   "smol-toml": "./vendor/smol-toml/index.js",
   "qrcode-generator": "./vendor/qrcode-generator/index.mjs",
+  "@unimusic/chromaprint/dist/chromaprint.js": "./vendor/@unimusic/chromaprint/chromaprint.js",
 };
 
 const visited = new Set();
@@ -71,7 +72,7 @@ if (errors.length > 0) {
   errors.forEach((e) => console.error("  " + e));
   console.error("");
   console.error(
-    "If errors are in vendor/, run: mkdir -p demo/vendor/smol-toml demo/vendor/qrcode-generator && cp node_modules/smol-toml/dist/*.js demo/vendor/smol-toml/ && cp node_modules/qrcode-generator/dist/qrcode.mjs demo/vendor/qrcode-generator/index.mjs",
+    "If errors are in vendor/, run: mkdir -p demo/vendor/smol-toml demo/vendor/qrcode-generator demo/vendor/@unimusic/chromaprint && cp node_modules/smol-toml/dist/*.js demo/vendor/smol-toml/ && cp node_modules/qrcode-generator/dist/qrcode.mjs demo/vendor/qrcode-generator/index.mjs && cp node_modules/@unimusic/chromaprint/dist/{chromaprint.js,chromaprint.wasm} demo/vendor/@unimusic/chromaprint/",
   );
   process.exit(1);
 }

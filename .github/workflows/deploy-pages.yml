@@ -37,10 +37,13 @@ jobs:
       # copyright declared in its source header.
       - name: Vendor npm dependencies
         run: |
-          mkdir -p demo/vendor/smol-toml demo/vendor/qrcode-generator
+          mkdir -p demo/vendor/smol-toml demo/vendor/qrcode-generator demo/vendor/@unimusic/chromaprint
           cp node_modules/smol-toml/dist/*.js demo/vendor/smol-toml/
           cp node_modules/smol-toml/LICENSE demo/vendor/smol-toml/LICENSE
           cp node_modules/qrcode-generator/dist/qrcode.mjs demo/vendor/qrcode-generator/index.mjs
+          cp node_modules/@unimusic/chromaprint/dist/chromaprint.js demo/vendor/@unimusic/chromaprint/chromaprint.js
+          cp node_modules/@unimusic/chromaprint/dist/chromaprint.wasm demo/vendor/@unimusic/chromaprint/chromaprint.wasm
+          cp node_modules/@unimusic/chromaprint/LICENSE.md demo/vendor/@unimusic/chromaprint/LICENSE.md
           cat > demo/vendor/qrcode-generator/LICENSE <<'EOF'
           MIT License
 

@@ -7,6 +7,9 @@ listed below using the `fetch-content.sh` script.
 
 The small files (`.afs`, `.srt`, `.json`) are committed.
 
+See [MEDIA-CHOICES.md](MEDIA-CHOICES.md) for the reasoning behind
+*which* content the demo uses (this file covers *what* and *how*).
+
 ## Sources
 
 ### dialogue-clip (Blender's Tears of Steel)
@@ -60,11 +63,11 @@ ffmpeg -i dialogue-clip.mp4 -filter_complex "
 |------|--------|---------|
 | `overture-finale.mp3` | Skidmore College Orchestra recording, finale section | Public Domain |
 | `overture-finale-cannons.json` | Hand-annotated cannon hit times | — (data, not copyrightable) |
-| `cannon-shot.mp4` | Cannon firing reenactment clip, ~1 second | CC-BY-ND 4.0 |
+| `cannon-shot.mp4` | Trimmed ~1s clip from US Army Signal Corps WWI footage | Public Domain |
 
 Source URLs:
 - Audio: https://archive.org/download/1812Overture_201603/ (Skidmore College Orchestra, PD)
-- Cannon video: https://ncpedia.org/media/video/firing-18th-century (Alamance Battleground reenactment, CC-BY-ND)
+- Cannon video: https://commons.wikimedia.org/wiki/File:9.2inchhowitzerfiringWWI.ogv (US Army Signal Corps, c. 1918, PD-USGov)
 
 Production steps:
 ```
@@ -83,19 +86,27 @@ ffmpeg -i overture-full.mp3 -ss FINALE_START -to FINALE_END -c copy overture-fin
 # Hand-annotate cannon timings: listen to overture-finale.mp3, note each cannon
 # time, write into overture-finale-cannons.json. Example shape:
 #   { "events": [{"time_ms": 32400, "type": "cannon", "label": "Cannon 1"}, ...] }
+
+# Trim the cannon clip to ~1 second of the firing moment, convert to mp4
+# (browser-friendlier than ogv). Adjust -ss to the actual firing instant
+# in the source.
+ffmpeg -i cannon-shot-source.ogv -ss 5 -t 1 \
+  -c:v libx264 -preset slow -crf 23 -an cannon-shot.mp4
 ```
 
 ## Licensing notes
 
 All source media in this directory is either public domain or
-permissively licensed (CC-BY, CC-BY-SA, CC-BY-ND). The AFS files and
-hand-timed SRTs produced for this project are released under the
-same license as the project (Apache 2.0), or in the case of files
-derived from CC-BY-SA sources, under CC-BY-SA 4.0 with attribution.
+permissively licensed (CC-BY, CC-BY-SA). CC-BY-ND is not accepted —
+trimming a clip for the demo is a derivative under most readings of
+the ND clause. The AFS files and hand-timed SRTs produced for this
+project are released under the same license as the project
+(Apache 2.0), or in the case of files derived from CC-BY-SA sources,
+under CC-BY-SA 4.0 with attribution.
 
 When using this content in a deployed demo, attribution lines should
 appear in the demo UI:
 
 - Tears of Steel © Blender Foundation, CC-BY 3.0
-- 1812 Overture performed by Skidmore College Orchestra (Public Domain via musopen.com)
-- Cannon firing video © NCpedia/Alamance Battleground, CC-BY-ND 4.0
+- 1812 Overture performed by Skidmore College Orchestra (Public Domain via musopen.org)
+- Cannon firing footage: US Army Signal Corps, c. 1918 (Public Domain)

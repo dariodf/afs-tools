@@ -15,6 +15,7 @@
     "url": "https://github.com/dariodf/afs-tools/issues"
   },
   "dependencies": {
+    "@unimusic/chromaprint": "^0.1.4",
     "qrcode-generator": "^2.0.4",
     "smol-toml": "^1.6.1"
   }

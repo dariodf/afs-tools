@@ -9,16 +9,33 @@ of the AFS (Audio Fingerprint Sync) specification.
 This product includes or depends on the following third-party works:
 
 Chromaprint
-  Used via the fpcalc binary (CLI tools) and, in the browser demo, via
-  a WebAssembly build that is loaded as a separate .wasm module at
-  runtime. Chromaprint is required to generate and verify the
-  fingerprints described by the AFS spec.
+  The AcoustID audio fingerprinting library. Used via the fpcalc
+  binary in the CLI tools, and in the browser demo as a WebAssembly
+  build (chromaprint.wasm) loaded as a separate module at runtime.
+  Chromaprint is required to generate and verify the fingerprints
+  described by the AFS spec.
   License: GNU Lesser General Public License, version 2.1 (LGPL-2.1)
   Source:  https://github.com/acoustid/chromaprint
-  Notice:  The LGPL-2.1 permits use of Chromaprint as a library in this
-           project. Users who wish to substitute a modified version of
-           Chromaprint may replace the fpcalc binary on their PATH or
-           the .wasm file shipped under demo/vendor/.
+  Notice:  The LGPL-2.1 permits use of Chromaprint as a library in
+           this project. Users who wish to substitute a modified
+           version of Chromaprint may replace the fpcalc binary on
+           their PATH, or replace the chromaprint.wasm file shipped
+           under demo/vendor/@unimusic/chromaprint/ with their own
+           build. The .wasm is loaded at runtime as a separate file,
+           satisfying LGPL §6's relinking provision.
+
+@unimusic/chromaprint
+  The npm package that packages Chromaprint as an Emscripten WASM
+  build along with a thin JS wrapper. The demo uses only the
+  vendored chromaprint.js / chromaprint.wasm files from this
+  package, calling the C API directly; the wrapper code in the
+  package's dist/index.js is not used. The LGPL-2.1 notice above
+  governs the bundled chromaprint.wasm regardless of this MIT
+  wrapper.
+  License: MIT
+  Source:  https://github.com/unimusic-app/unimusic-chromaprint
+  Notice:  The MIT license text is preserved alongside the vendored
+           files at demo/vendor/@unimusic/chromaprint/LICENSE.md.
 
 smol-toml
   Bundled in demo/vendor/smol-toml/ and used by the browser demo to

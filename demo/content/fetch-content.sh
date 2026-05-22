@@ -9,9 +9,8 @@
 # Produces:
 #   tearsofsteel-full.mp4       (~400MB, Tears of Steel full film)
 #   1812-overture-full.mp3      (~30MB, full overture)
-#   churchill-full.mp3          (~12MB, full speech)
 #   tearsofsteel.en.srt         (Tears of Steel English subtitles)
-#   cannon-shot-source.mp4      (placeholder; manual download required)
+#   cannon-shot-source.ogv      (~1MB, WWI howitzer firing, PD)
 #
 # After running this script, follow the production steps in
 # README.md to trim each source down to the demo-sized clips.
@@ -44,7 +43,7 @@ else
   echo "  tearsofsteel.en.srt already exists"
 fi
 
-# 1812 Overture - Skidmore College Orchestra (Public Domain via musopen.com)
+# 1812 Overture - Skidmore College Orchestra (Public Domain via musopen.org)
 if [[ ! -f 1812-overture-full.mp3 ]]; then
   echo "  fetching 1812 Overture (Skidmore College Orchestra, ~22MB)..."
   # The archive.org URL has a long encoded filename; using the direct
@@ -56,14 +55,18 @@ else
   echo "  1812-overture-full.mp3 already exists"
 fi
 
-# Cannon firing video: no direct programmatic download. The NCpedia
-# video at https://ncpedia.org/media/video/firing-18th-century is the
-# recommended source (CC-BY-ND 4.0). Download manually or substitute
-# any CC-licensed cannon clip from Wikimedia Commons.
-if [[ ! -f cannon-shot-source.mp4 ]]; then
-  echo "  NOTE: cannon-shot-source.mp4 must be downloaded manually."
-  echo "    Recommended: https://ncpedia.org/media/video/firing-18th-century"
-  echo "    Save as cannon-shot-source.mp4 in this directory."
+# Cannon firing video (Public Domain).
+# US Army Signal Corps footage from "America Goes Over (Part II)" (1918),
+# showing a British BL 9.2-inch howitzer firing on the WWI Western Front.
+# 17 seconds at 384×288; we trim to ~1 second of the firing moment in
+# README.md. PD-US-Government, no attribution required.
+if [[ ! -f cannon-shot-source.ogv ]]; then
+  echo "  fetching cannon firing footage (Wikimedia Commons, PD, ~1MB)..."
+  curl -L -o cannon-shot-source.ogv \
+    'https://commons.wikimedia.org/wiki/Special:FilePath/9.2inchhowitzerfiringWWI.ogv' \
+    || echo "  WARNING: cannon clip download failed; check the URL"
+else
+  echo "  cannon-shot-source.ogv already exists"
 fi
 
 echo ""

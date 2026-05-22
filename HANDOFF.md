@@ -2,122 +2,146 @@
 
 This file tracks the remaining work to take the AFS project from
 "complete skeleton with mock fingerprinter" to "working demo at
-dariodf.github.io/afs-tools". Almost everything is mechanical;
-the only real unknown is the WASM chromaprint API.
+dariodf.github.io/afs-tools".
+
+## Status (2026-05-22)
+
+Work completed in the licensing + WASM session:
+
+- Spec repo (`afs/`) finalized. Switched license to CC0 1.0
+  Universal. Time cues in the body switched from microseconds to
+  milliseconds, with a non-normative Appendix A.1 specifying
+  cumulative-correct rounding so different generators produce
+  identical cue sequences. SHA-256 redefined as a hash of the
+  source file bytes. Other small clarifications (whitespace
+  tolerance in the body, minor-version-acceptance rule, inline
+  comments disallowed, `[metadata.audio]` source-side wording).
+  Stale `IMPLEMENTATION.md` removed.
+- Tools repo (`afs-tools/`) finalized for licensing: LICENSE
+  copyright filled in, NOTICE added covering chromaprint
+  (LGPL-2.1), `@unimusic/chromaprint` (MIT), smol-toml (MIT),
+  qrcode-generator (MIT). CC-BY-ND removed from accepted licenses
+  in CONTRIBUTING.md.
+- **WASM chromaprint wired up**, using `@unimusic/chromaprint`
+  (Emscripten WASM build of AcoustID chromaprint, MIT-wrapped
+  LGPL-2.1). `demo/src/chromaprint.js` now loads it via dynamic
+  `import()` (Node-safe — tests still use mockFingerprint).
+- Source-side µs→ms sync across parser, writer, matcher,
+  demo-session, bash CLIs, and tests.
+- afs-generate now hashes the original input file (per the
+  updated spec) instead of the extracted PCM audio.
+- Test suites: 4 of them, all green — `test-runner.js` (42),
+  `test-matcher-robustness.js` (13), `test-demo-pipeline.js`,
+  `test-imports.js` (23 files in the import graph after vendoring
+  the new chromaprint module).
+- Local repos created and committed at `~/dariodf/afs` and
+  `~/dariodf/afs-tools`, **not yet pushed** (waiting on a
+  browser-side smoke test of the live demo).
+- Cannon-clip source switched from CC-BY-ND NCpedia to a Public
+  Domain US Army Signal Corps WWI howitzer clip on Wikimedia
+  Commons (see `demo/content/MEDIA-CHOICES.md`).
+
+Remaining gates to a live, working demo:
+
+1. Browser-side smoke test of the WASM integration (custom-files
+   demo: upload audio → AFS generated → matcher locks on
+   playback). See Phase 2.4 below.
+2. Phase 3: content production — `fetch-content.sh` is now fully
+   automated; manual work is the trim/SRT/JSON steps and cannon
+   timings.
+3. Phase 4: phone-mic smoke test.
 
 ## Quick context
 
-- The spec repo (`afs/`) is **complete**. Just push it.
-- The implementation repo (`afs-tools/`) is **complete except for two
-  TODO comments in `demo/src/chromaprint.js`** that wire up the WASM
-  fingerprinter, plus content files that need to be downloaded and
-  trimmed.
-- 38 unit tests + 1 pipeline test + 1 import-resolution test, all
-  passing. CI runs them on every push.
-- GitHub Pages auto-deploy is wired up; just enable it in repo settings.
+- The spec repo (`afs/`) is **complete and committed locally**.
+- The implementation repo (`afs-tools/`) is **complete except for**
+  content production (Phase 3) and the live-browser verification
+  step. The WASM integration that was the original blocker is wired.
+- 4 test suites, ~56 tests + pipeline + import graph, all passing.
+  CI runs them on every push.
+- GitHub Pages auto-deploy is wired up; just enable it in repo
+  settings after first push.
 
 ---
 
-## Phase 1 — push the repos (~10 minutes)
+## Phase 1 — push the repos (DONE locally)
 
-### 1.1 Push `afs/` (the spec repo)
+Both GitHub repos exist (private, `dariodf/afs` and
+`dariodf/afs-tools`) and have a first commit on `main` locally.
+They have **not** been pushed yet, by deliberate choice — push
+only after a successful browser-side smoke test in Phase 2.4.
 
-```bash
-cd path/to/downloaded/afs/
-git init
-git add .
-git commit -m "Initial AFS v0.1 spec"
-git remote add origin git@github.com:dariodf/afs.git
-git push -u origin main
-```
-
-### 1.2 Push `afs-tools/` (the implementation repo)
+When ready to push:
 
 ```bash
-cd path/to/downloaded/afs-tools/
-git init
-git add .
-git commit -m "Initial AFS tools and demo"
-git remote add origin git@github.com:dariodf/afs-tools.git
-git push -u origin main
+git -C ~/dariodf/afs push -u origin main
+git -C ~/dariodf/afs-tools push -u origin main
 ```
 
-### 1.3 Enable GitHub Pages for afs-tools
-
-In the repo settings on github.com:
-
-- Settings → Pages
-- Source: **GitHub Actions**
-
-The deploy workflow runs automatically on every push to `main`. After
-the first push, the demo will be live at
-`https://dariodf.github.io/afs-tools/` (modulo content files still
-missing — Phase 3 fixes that).
+After pushing afs-tools, enable Pages in the repo settings:
+Settings → Pages → Source: **GitHub Actions**. The deploy
+workflow runs automatically on subsequent pushes to `main` and
+publishes the demo at `https://dariodf.github.io/afs-tools/`.
 
 ---
 
-## Phase 2 — wire up WASM chromaprint (~30 minutes if API is straightforward)
+## Phase 2 — wire up WASM chromaprint (DONE; browser verification still owed)
 
-### 2.1 Install the package
+The originally-named `chromaprint-wasm` package (2018) turned out to
+be unusable: it only exposes a base64-compressed fingerprint string,
+not the raw uint32 hashes AFS needs, and its module-loading pattern
+is bundler-dependent. Switched to **`@unimusic/chromaprint`** (2025),
+an Emscripten WASM build of the AcoustID chromaprint library with
+the full C API exposed.
 
-```bash
-cd afs-tools
-npm install chromaprint-wasm
-```
+The integration in `demo/src/chromaprint.js` calls the WASM C API
+directly (`_chromaprint_new` / `_start` / `_feed` / `_finish` /
+`_get_raw_fingerprint`) and reads uint32 hashes out of HEAP32. The
+@unimusic high-level wrapper's raw-output path has a bug (reads the
+data pointer before the call populates it); we skip that wrapper.
 
-### 2.2 Read the actual API
+`loadChromaprint()` uses a dynamic `import()` so the Emscripten glue
+(which asserts `ENVIRONMENT_IS_WEB` at module-load time) is only
+fetched at runtime in a browser. Node-side tests never call
+`loadChromaprint()` — they use `mockFingerprint` — so the import
+never fires under Node and tests stay green.
 
-The package is a Rust port wrapped via wasm-bindgen. Check what it
-actually exports:
+What's bundled:
 
-```bash
-cat node_modules/chromaprint-wasm/README.md
-ls node_modules/chromaprint-wasm/
-cat node_modules/chromaprint-wasm/*.d.ts  # if TypeScript defs exist
-```
+- `demo/vendor/@unimusic/chromaprint/chromaprint.js` (Emscripten
+  glue, ~43 KB)
+- `demo/vendor/@unimusic/chromaprint/chromaprint.wasm` (~107 KB)
+- `demo/vendor/@unimusic/chromaprint/LICENSE.md`
+- Import map entry in `demo/index.html`
+- Workflow vendors all three files in the Pages deploy step
 
-My sketch in `demo/src/chromaprint.js` assumes the package looks like:
+### 2.4 Browser-side smoke test (still owed)
 
-```javascript
-import cp from 'chromaprint-wasm';
-await cp.default();              // initialize WASM
-const hashes = cp.fingerprint(int16Samples);  // returns Uint32Array
-```
-
-The real API may differ. Adjust accordingly.
-
-### 2.3 Replace the two TODO blocks
-
-In `demo/src/chromaprint.js`:
-
-- The TODO inside `loadChromaprint()` (around line 38) — replace the
-  `throw` with actual WASM loading.
-- The TODO inside `fingerprintAudio()` (around line 60) — replace
-  the `throw` with the actual call to the loaded module.
-- Also update the import map in `demo/index.html` if the chromaprint
-  package needs to be added (it might just work without one — Rust+wasm-bindgen
-  outputs are often self-contained ESM).
-- Update the deploy workflow (`.github/workflows/deploy-pages.yml`)
-  to copy chromaprint-wasm to `demo/vendor/` like smol-toml is.
-
-### 2.4 Verify
-
-The mock fingerprinter still needs to work as a fallback for tests,
-so don't remove the import of `mockFingerprint` in `app.js`. But the
-custom-files demo and the live capture should now use the real one.
-
-Run the test suite:
+Tests use the mock fingerprinter; they can't exercise the real WASM
+path. Run locally:
 
 ```bash
-node test/test-runner.js          # 38 unit tests, should still pass
-node test/test-demo-pipeline.js   # smoke test
-node test/test-imports.js         # import resolution check
+cd ~/dariodf/afs-tools
+# Re-vendor if you've blown away demo/vendor/:
+mkdir -p demo/vendor/smol-toml demo/vendor/qrcode-generator demo/vendor/@unimusic/chromaprint
+cp node_modules/smol-toml/dist/*.js demo/vendor/smol-toml/
+cp node_modules/smol-toml/LICENSE demo/vendor/smol-toml/LICENSE
+cp node_modules/qrcode-generator/dist/qrcode.mjs demo/vendor/qrcode-generator/index.mjs
+cp node_modules/@unimusic/chromaprint/dist/chromaprint.{js,wasm} demo/vendor/@unimusic/chromaprint/
+cp node_modules/@unimusic/chromaprint/LICENSE.md demo/vendor/@unimusic/chromaprint/
+
+cd demo && python3 -m http.server 8000
 ```
 
-If the API was different than expected, the smoke test won't change
-(it uses mockFingerprint), but the demo in a browser will reveal
-problems. Open the demo locally and try the custom-files flow with
-any audio file.
+Open <http://localhost:8000>, pick the "Use your own files..." demo,
+upload any short audio file, and confirm:
+
+1. An AFS file downloads with a non-empty body.
+2. Parsing it back round-trips through `parseAFS()` without errors.
+3. Playing the audio back in direct mode makes the matcher lock on.
+
+Once that works, the WASM path is verified and the project is ready
+to push and deploy.
 
 ---
 
@@ -138,15 +162,16 @@ This downloads:
 - `tearsofsteel.en.srt` (Wikimedia Commons SRT)
 - `1812-overture-full.mp3` (Skidmore College Orchestra recording, ~22 MB)
 
-### 3.2 Manual download — cannon video
+### 3.2 Cannon video (now automated)
 
-NCpedia doesn't have a programmatic download URL. Open
-<https://ncpedia.org/media/video/firing-18th-century> in a browser,
-right-click the video, "Save video as", save to
-`demo/content/cannon-shot-source.mp4`.
+`fetch-content.sh` pulls a Public Domain US Army Signal Corps WWI
+howitzer clip from Wikimedia Commons
+(`9.2inchhowitzerfiringWWI.ogv`). No manual download step.
 
-License: CC-BY-ND 4.0 (no modifications allowed beyond clipping for
-length — fine for our use).
+License: Public Domain (PD-USGov, 17 USC §105 + CC Public Domain
+Mark 1.0). See `demo/content/MEDIA-CHOICES.md` for the reasoning
+behind this choice over the original CC-BY-ND NCpedia clip and the
+CC-BY-SA HD alternatives.
 
 ### 3.3 Trim Tears of Steel to a 90-second dialogue-rich window
 
@@ -224,10 +249,12 @@ ffmpeg -i 1812-overture-full.mp3 -ss FINALE_START -to FINALE_END \
 ### 3.8 Trim the cannon clip to ~1 second
 
 ```bash
-ffmpeg -i cannon-shot-source.mp4 -ss 5 -t 1 -c copy cannon-shot.mp4
+# Source is .ogv; convert to .mp4 while trimming so it plays in
+# browsers without extra codec hassle. Adjust -ss to land on the
+# actual firing instant in the 17-second source.
+ffmpeg -i cannon-shot-source.ogv -ss 5 -t 1 \
+  -c:v libx264 -preset slow -crf 23 -an cannon-shot.mp4
 ```
-
-(Adjust `-ss` to find the actual firing moment in the source clip.)
 
 ### 3.9 Hand-annotate cannon timings
 
@@ -373,20 +400,22 @@ Known limitations:
 
 ## Summary: how long this actually takes
 
-| Phase | Time | Blocked on |
-|-------|------|-----------|
-| 1. Push repos | 10 min | nothing |
-| 2. WASM wiring | 30 min | npm + reading the chromaprint-wasm API |
-| 3. Content production | 90 min | downloads, ffmpeg, you listening to cannons |
-| 4. Smoke test | 5 min | a phone and a laptop |
-| **Total** | **~2.5 hours** | |
+| Phase | Status | Time | Blocked on |
+|-------|--------|------|-----------|
+| 1. Repos created and committed locally | DONE | — | first push gated on Phase 2.4 |
+| 2. WASM wiring (`@unimusic/chromaprint`) | DONE | — | browser smoke test (2.4) still owed |
+| 2.4 Browser-side smoke test | TODO | ~10 min | local server + a browser |
+| 3. Content production | TODO | ~90 min | downloads, ffmpeg, you listening to cannons |
+| 4. Phone-mic smoke test | TODO | ~5 min | a phone and a laptop |
+| **Total remaining** | | **~2 hours** | |
 
-vs. the 4-6 weekend estimate from the implementation spec. The
-estimate was for someone starting from scratch. What you have now is
-done — this is execution.
+vs. the 4-6 weekend estimate from the original implementation spec.
+The estimate was for someone starting from scratch. What you have
+now is mostly done — this is execution.
 
 Phase 3.9 (cannon annotations) is the only task that genuinely needs
 a human listener. Everything else can be automated or scripted.
 
-If Phase 4 surfaces real WASM problems, add a few hours; still
+If Phase 4 surfaces real-world matcher problems, add a few hours of
+threshold tuning per the troubleshooting section above; still
 nowhere near a weekend.
