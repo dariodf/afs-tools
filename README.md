@@ -75,15 +75,28 @@ implementation status is tracked in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Dependencies
 
-CLI tools:
-- bash 4+
-- ffmpeg (any recent version)
-- fpcalc (from [chromaprint](https://github.com/acoustid/chromaprint), 1.5.0+)
-- sha256sum (Linux) or shasum -a 256 (macOS)
+### System binaries
 
-Demo:
-- Modern browser with Web Audio API and AudioWorklet support
-- HTTPS or localhost for microphone access
+- `bash` 4+
+- `ffmpeg` — any recent version. Used by the CLI tools, by the
+  integration test, and (manually) by content production recipes
+  in `demo/content/README.md`.
+- `fpcalc` — from [chromaprint](https://github.com/acoustid/chromaprint),
+  1.5.0+. Provides the canonical chromaprint fingerprinter used
+  by `tools/afs-generate` and by `test/test-fpcalc-match.js`.
+  - macOS: `brew install chromaprint ffmpeg`
+  - Debian/Ubuntu: `sudo apt install libchromaprint-tools ffmpeg`
+- `sha256sum` (Linux) or `shasum -a 256` (macOS) — for the SHA-256
+  field of generated AFS files.
+
+### Demo (browser side)
+
+- Modern browser with Web Audio API and AudioWorklet support.
+- HTTPS (or `localhost`) for microphone access.
+- The browser uses [`@unimusic/chromaprint`](https://github.com/unimusic-app/unimusic-chromaprint)
+  (Emscripten WASM build of chromaprint) for in-browser
+  fingerprinting. Bundled via `demo/vendor/` by the deploy
+  workflow; no install needed by the visitor.
 
 ## License
 

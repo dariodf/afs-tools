@@ -110,12 +110,12 @@ body::before {
 }
 
 main {
-  max-width: 880px;
+  max-width: 1040px;
   margin: 0 auto;
-  padding: 0 var(--s-4) var(--s-8);
+  padding: var(--s-4) var(--s-4) var(--s-6);
   display: flex;
   flex-direction: column;
-  gap: var(--s-5);
+  gap: var(--s-4);
 }
 
 ::selection {
@@ -141,19 +141,32 @@ a:focus-visible {
 }
 
 /* -----------------------------------------------------------------------
-   Header — the specimen sheet's title block
+   Header — single horizontal row: wordmark · tagline+lede · links
    ----------------------------------------------------------------------- */
 
 header {
-  max-width: 880px;
+  max-width: 1040px;
   margin: 0 auto;
-  padding: var(--s-7) var(--s-4) var(--s-6);
+  padding: var(--s-4) var(--s-4) var(--s-3);
   border-bottom: 1px solid var(--rule);
 }
 
 .masthead {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: var(--s-3);
+}
+
+.masthead-top {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-5);
+  flex-wrap: wrap;
+}
+
+.masthead-top .tagline {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .wordmark {
@@ -162,7 +175,7 @@ header {
   gap: var(--s-2);
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: clamp(3rem, 9vw, 5.5rem);
+  font-size: clamp(2.25rem, 5vw, 3rem);
   line-height: 0.9;
   letter-spacing: -0.02em;
   font-variation-settings: "opsz" 144, "SOFT" 30;
@@ -176,50 +189,41 @@ header {
   line-height: 1;
   color: var(--accent);
   transform: translateY(-0.15em);
-  /* The ∿ is the project's literal sigil; nudge it visually so it
-     reads as a meaningful glyph next to the wordmark, not a stray
-     punctuation mark. */
 }
 
 .wordmark-letters {
   font-feature-settings: "ss01" on;
 }
 
-.eyebrow {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--fg-dim);
-  margin: 0;
-  margin-top: calc(var(--s-2) * -1);
+.masthead-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .tagline {
   font-family: var(--font-display);
-  font-weight: 300;
-  font-size: clamp(1.5rem, 4.5vw, 2.25rem);
-  line-height: 1.15;
-  letter-spacing: -0.015em;
+  font-weight: 500;
+  font-size: 1rem;
+  line-height: 1.25;
+  letter-spacing: -0.005em;
   color: var(--fg);
-  margin: var(--s-2) 0 0;
-  max-width: 22ch;
-  font-variation-settings: "opsz" 60, "SOFT" 50;
+  margin: 0;
+  font-variation-settings: "opsz" 36, "SOFT" 60;
 }
 
 .tagline em {
   font-style: italic;
-  font-variation-settings: "opsz" 60, "SOFT" 100;
+  font-variation-settings: "opsz" 36, "SOFT" 100;
   color: var(--accent);
 }
 
 .lede {
-  font-size: 1.0625rem;
-  line-height: 1.55;
+  font-size: 0.8125rem;
+  line-height: 1.45;
   color: var(--fg-dim);
-  max-width: 56ch;
-  margin: var(--s-3) 0 0;
+  margin: 0;
 }
 
 .lede em {
@@ -228,17 +232,17 @@ header {
 }
 
 .masthead-links {
-  margin-top: var(--s-4);
   font-family: var(--font-mono);
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--fg-dim);
+  color: var(--fg-muted);
+  margin: 0;
+  white-space: nowrap;
 }
 
 .masthead-links a {
   color: inherit;
-  margin: 0 0.15em;
   border-bottom: 1px dotted currentColor;
 }
 
@@ -249,64 +253,29 @@ header {
 
 .masthead-links span {
   opacity: 0.5;
-  margin: 0 0.2em;
+  margin: 0 0.3em;
 }
 
 /* -----------------------------------------------------------------------
-   Controls — segmented tabs
+   Tabs — plain text with accent underline on the active one
    ----------------------------------------------------------------------- */
 
-.controls {
-  display: grid;
-  gap: var(--s-4);
-  padding: var(--s-4) var(--s-5);
-  background: var(--bg-elevated);
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-}
-
-@media (min-width: 720px) {
-  .controls {
-    grid-template-columns: 1fr auto;
-    align-items: end;
-  }
-  .controls > #fullscreen-btn {
-    grid-column: 2;
-  }
-}
-
-.control-group {
-  display: grid;
-  gap: var(--s-2);
-  min-width: 0;
-}
-
-.control-label {
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  font-weight: 500;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  color: var(--fg-muted);
-}
-
-.segmented {
+.tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 1px;
-  background: var(--rule);
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  overflow: hidden;
-  padding: 1px;
+  gap: var(--s-5);
+  padding: 0;
+  margin: 0;
+  border-bottom: 1px solid var(--rule);
 }
 
-.seg-btn {
-  flex: 1 1 auto;
-  padding: var(--s-2) var(--s-4);
+.tab {
+  padding: var(--s-2) 0;
   border: 0;
-  background: var(--bg-elevated);
-  color: var(--fg);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--fg-dim);
   font-family: var(--font-body);
   font-size: 0.9375rem;
   font-weight: 500;
@@ -314,68 +283,31 @@ header {
   letter-spacing: -0.005em;
   cursor: pointer;
   white-space: nowrap;
-  text-align: center;
-  position: relative;
-  transition: background 160ms ease, color 160ms ease, transform 100ms ease;
-  /* Edge-to-edge: gap on parent provides the dividing lines */
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.tab:hover:not(.active) {
+  color: var(--fg);
+}
+
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
   border-radius: 2px;
 }
 
-.seg-btn:hover:not(.active) {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.seg-btn.active {
-  background: var(--accent);
-  color: var(--accent-fg);
-  /* Subtle inset to suggest the button is "depressed" */
-  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.06);
-}
-
-.seg-btn:active {
-  transform: translateY(1px);
-}
-
-.seg-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  z-index: 2;
-}
-
-/* Mobile: stack the seg-btns vertically when there isn't space */
-@media (max-width: 480px) {
-  .seg-btn {
-    flex: 1 1 calc(50% - 1px);
-    font-size: 0.875rem;
-    padding: var(--s-2) var(--s-3);
+@media (max-width: 520px) {
+  .tabs {
+    gap: var(--s-4);
   }
-}
-
-#fullscreen-btn {
-  padding: var(--s-2) var(--s-4);
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  background: transparent;
-  color: var(--accent);
-  cursor: pointer;
-  align-self: end;
-  transition: background 150ms ease, color 150ms ease;
-}
-
-#fullscreen-btn:hover {
-  background: var(--accent);
-  color: var(--accent-fg);
-}
-
-#fullscreen-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  .tab {
+    font-size: 0.875rem;
+  }
 }
 
 /* -----------------------------------------------------------------------
@@ -553,10 +485,12 @@ header {
 .player-area video,
 .player-area audio {
   width: 100%;
-  max-width: 720px;
+  max-width: 640px;
+  max-height: 45vh;
   margin: 0 auto;
   background: #000;
   border-radius: 4px;
+  object-fit: contain;
 }
 
 /* -----------------------------------------------------------------------
@@ -593,6 +527,7 @@ header {
   text-align: center;
 }
 
+
 .track-controls {
   display: flex;
   flex-wrap: wrap;
@@ -624,40 +559,138 @@ header {
 }
 
 /* -----------------------------------------------------------------------
-   QR area (mic mode handoff)
+   Stage — player + side QR
    ----------------------------------------------------------------------- */
 
+.stage {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--s-5);
+  align-items: start;
+}
+
+@media (min-width: 900px) {
+  .stage {
+    grid-template-columns: 1fr 260px;
+    gap: var(--s-6);
+  }
+}
+
+/* QR area: an inviting side panel asking the visitor to scan and try
+   it on another device. The catchy heading and pitch are the hook;
+   the QR code is the action. */
 .qr-area {
-  text-align: center;
-  padding: var(--s-5) var(--s-4);
+  padding: var(--s-5);
   background: var(--bg-elevated);
   border: 1px solid var(--rule);
   border-radius: 4px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
 }
 
-.qr-area > p:first-child {
+.qr-area::before {
+  /* Subtle attention accent: a thin colored bar at the top of the
+     panel that says "this is a thing to try". */
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--accent);
+}
+
+.qr-eyebrow {
   font-family: var(--font-mono);
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   font-weight: 500;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.15em;
   text-transform: uppercase;
-  color: var(--fg-muted);
-  margin: 0 0 var(--s-3);
+  color: var(--accent);
+  margin: var(--s-2) 0 var(--s-1);
+}
+
+.qr-heading {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.625rem;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  color: var(--fg);
+  margin: 0 0 var(--s-2);
+  font-variation-settings: "opsz" 60, "SOFT" 40;
+}
+
+.qr-pitch {
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--fg-dim);
+  margin: 0 0 var(--s-4);
+  max-width: 32ch;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 #qr-code {
   display: inline-block;
-  margin: var(--s-3) 0;
+  margin: 0 0 var(--s-2);
   background: #ffffff;
   padding: var(--s-3);
   border-radius: 4px;
+  line-height: 0;
+}
+
+#qr-code svg, #qr-code img, #qr-code table {
+  max-width: 100%;
+  height: auto;
+}
+
+.qr-or {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: var(--s-2) 0;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.qr-or::before,
+.qr-or::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--rule);
+}
+
+.qr-link {
+  display: inline-block;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  color: var(--accent);
+  font-size: 0.875rem;
+  font-weight: 500;
+  background: transparent;
+  margin-bottom: var(--s-3);
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.qr-link:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
 }
 
 .qr-help {
-  color: var(--fg-dim);
-  font-size: 0.875rem;
-  max-width: 48ch;
-  margin: var(--s-3) auto 0;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+  margin: 0;
   line-height: 1.5;
 }
 
@@ -781,23 +814,22 @@ header {
   opacity: 0.85;
 }
 
-.cannon-video {
-  position: fixed;
-  bottom: var(--s-4);
-  right: var(--s-4);
-  width: 30vw;
-  max-width: 220px;
-  display: none;
-  z-index: 99;
+/* Inline variant: placed in the document flow below the audio
+   element, visible all the time. The video plays a flash on each
+   cannon hit; between hits it shows its last frame muted, which is
+   fine. */
+.cannon-video.inline {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  background: #000;
+  border: 1px solid var(--rule);
   border-radius: 4px;
-  overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
 }
 
-.cannon-video.showing {
-  display: block;
-}
-
+/* Fullscreen variant (mic mode): cover the entire viewport. */
 .cannon-video.fullscreen {
   position: fixed;
   inset: 0;
@@ -805,7 +837,15 @@ header {
   max-width: none;
   height: 100vh;
   border-radius: 0;
+  z-index: 99;
+  display: none;
+  background: #000;
+  object-fit: cover;
   box-shadow: none;
+}
+
+.cannon-video.fullscreen.showing {
+  display: block;
 }
 
 .cannon-video video {
@@ -863,6 +903,59 @@ header {
   border-radius: 3px;
   font-size: 0.875em;
   color: var(--fg);
+}
+
+/* -----------------------------------------------------------------------
+   Shared transport (single play/pause for the dual-video demo)
+   ----------------------------------------------------------------------- */
+
+.shared-transport {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  background: var(--bg-elevated);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+}
+
+.transport-btn {
+  padding: var(--s-2) var(--s-4);
+  border: 0;
+  border-radius: 4px;
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  background: var(--accent);
+  color: var(--accent-fg);
+  cursor: pointer;
+  transition: opacity 150ms ease, background 150ms ease;
+}
+
+.transport-btn:hover { opacity: 0.9; }
+
+.transport-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.transport-btn-secondary {
+  background: transparent;
+  color: var(--fg-dim);
+  border: 1px solid var(--rule);
+}
+
+.transport-btn-secondary:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.transport-time {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  color: var(--fg-dim);
+  margin-left: auto;
+  letter-spacing: 0.02em;
 }
 
 /* -----------------------------------------------------------------------
@@ -927,13 +1020,13 @@ header {
    ----------------------------------------------------------------------- */
 
 footer {
-  max-width: 880px;
-  margin: var(--s-9) auto 0;
-  padding: var(--s-6) var(--s-4);
+  max-width: 1040px;
+  margin: var(--s-5) auto 0;
+  padding: var(--s-4) var(--s-4) var(--s-3);
   border-top: 1px solid var(--rule);
   color: var(--fg-dim);
-  font-size: 0.8125rem;
-  line-height: 1.6;
+  font-size: 0.75rem;
+  line-height: 1.5;
 }
 
 footer > p:first-child {

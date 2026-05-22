@@ -16,7 +16,7 @@
 import { parseAFS, chromaprintArrays } from "./afs-parser.js";
 import { AFSMatcher, hamming32 } from "./afs-matcher.js";
 import { AudioCapture } from "./audio-capture.js";
-import { mockFingerprint } from "./chromaprint.js";
+import { loadChromaprint, fingerprintAudio } from "./chromaprint.js";
 
 const DEFAULT_OPTIONS = {
   // Match every N ms. 250 ms is the default — slower than
@@ -65,6 +65,7 @@ export class DemoSession {
   // Start a session attached to an HTMLMediaElement (direct mode).
   async startDirect(mediaElement) {
     this._ensureLoaded();
+    await loadChromaprint();
     this.capture = new AudioCapture();
     await this.capture.startFromMediaElement(mediaElement);
     this._startMatchLoop();
@@ -73,6 +74,7 @@ export class DemoSession {
   // Start a session attached to the microphone (mic mode).
   async startMic() {
     this._ensureLoaded();
+    await loadChromaprint();
     this.capture = new AudioCapture();
     await this.capture.startFromMicrophone();
     this._startMatchLoop();
@@ -141,7 +143,7 @@ export class DemoSession {
 
     let hashes;
     try {
-      hashes = mockFingerprint(samples);
+      hashes = fingerprintAudio(samples);
     } catch (e) {
       this.onStatus({ kind: "error", message: String(e) });
       return;

@@ -77,7 +77,20 @@ function bindSessionStatus(session) {
   session.onStatus = (status) => {
     switch (status.kind) {
       case "buffering":
-        setStatus(`syncing... ${status.progressPct}%`, "warn");
+        if (status.progressPct < 1) {
+          // No audio reaching the matcher yet — either the user
+          // hasn't pressed play or the mic isn't capturing.
+          setStatus(
+            state.mode === "mic" ? "waiting for audio (mic)" : "press play to begin",
+            "",
+          );
+        } else {
+          // The AFS file is already loaded (we ship them with the
+          // built-in demos). What's happening is the matcher is
+          // listening to enough audio to recognize the position.
+          // "Searching" describes that better than "syncing".
+          setStatus("searching for position…", "warn");
+        }
         break;
       case "searching":
         setStatus("searching for position...", "warn");
@@ -116,10 +129,18 @@ function formatTimeMs(ms) {
 // -----------------------------------------------------------------------
 
 function renderQRCodeForCurrentDemo() {
+  // Both the QR and the click-to-open link encode mic mode — the
+  // companion device (phone, second laptop, anything with a
+  // microphone) opens listening for the audio. The current device
+  // can be in either mode independently.
   const url = new URL(window.location.href);
   url.searchParams.set("demo", state.demoId);
-  url.searchParams.set("mode", state.mode);
-  state.els.qrCode.innerHTML = qrCode(url.toString(), { size: 220 });
+  url.searchParams.set("mode", "mic");
+  const href = url.toString();
+  state.els.qrCode.innerHTML = qrCode(href, { size: 220 });
+  if (state.els.qrLink) {
+    state.els.qrLink.href = href;
+  }
 }
 
 // -----------------------------------------------------------------------
@@ -141,80 +162,7 @@ async function startSessionFor(session, mediaElementOrNull) {
 }
 
 // -----------------------------------------------------------------------
-// Demo 1: shifted SRT (one video, two SRT tracks)
-// -----------------------------------------------------------------------
-
-async function startDesyncSrtDemo() {
-  state.els.playerArea.innerHTML = `
-    <video id="demo-video" controls preload="metadata" playsinline></video>
-    <div class="subtitle-row">
-      <div class="subtitle-track-label">
-        Correctly timed
-        <label><input type="checkbox" id="afs-correct"> AFS mode</label>
-      </div>
-      <div class="subtitle-track" id="sub-correct"></div>
-    </div>
-    <div class="subtitle-row">
-      <div class="subtitle-track-label">
-        Shifted +2 seconds
-        <label><input type="checkbox" id="afs-shifted"> AFS mode</label>
-      </div>
-      <div class="subtitle-track" id="sub-shifted"></div>
-    </div>
-    <div class="demo-explanation">
-      The bottom subtitle file has every timestamp shifted by 2 seconds.
-      Without AFS, it shows every line 2 seconds late. Toggle AFS mode on
-      the bottom track to see it snap into sync with the dialogue.
-    </div>
-  `;
-
-  const video = document.getElementById("demo-video");
-  video.src = "content/dialogue-clip.mp4";
-
-  const [srtCorrect, srtShifted] = await Promise.all([
-    fetch("content/dialogue-clip.en.srt").then((r) => r.text()),
-    fetch("content/dialogue-clip.en.shifted.srt").then((r) => r.text()),
-  ]);
-  const cuesCorrect = parseSRT(srtCorrect);
-  const cuesShifted = parseSRT(srtShifted);
-
-  const rendererCorrect = new SubtitleRenderer(
-    document.getElementById("sub-correct"),
-    cuesCorrect,
-  );
-  const rendererShifted = new SubtitleRenderer(
-    document.getElementById("sub-shifted"),
-    cuesShifted,
-  );
-
-  document.getElementById("afs-correct").addEventListener("change", (e) => {
-    rendererCorrect.setUseAfs(e.target.checked);
-  });
-  document.getElementById("afs-shifted").addEventListener("change", (e) => {
-    rendererShifted.setUseAfs(e.target.checked);
-  });
-
-  const session = new DemoSession({
-    onPosition: (timeMs) => {
-      rendererCorrect.setAfsTimeMs(timeMs);
-      rendererShifted.setAfsTimeMs(timeMs);
-    },
-  });
-  state.session = session;
-  bindSessionStatus(session);
-
-  await session.loadAFS("content/dialogue-clip.afs");
-  await startSessionFor(session, video);
-
-  startRafLoop(() => {
-    const rawMs = video.currentTime * 1000;
-    rendererCorrect.setRawTimeMs(rawMs);
-    rendererShifted.setRawTimeMs(rawMs);
-  });
-}
-
-// -----------------------------------------------------------------------
-// Demo 2: edited video (two videos side-by-side, shared SRT)
+// Subtitles demo: original + edited video side-by-side, shared SRT
 // -----------------------------------------------------------------------
 
 async function startDesyncVideoDemo() {
@@ -260,36 +208,35 @@ async function startDesyncVideoDemo() {
     return;
   }
 
-  // Direct mode: side-by-side comparison.
+  // Direct mode: side-by-side comparison with INDEPENDENT playback
+  // for each video. These are two different files (one with cuts);
+  // forcing shared transport would lock them together when the
+  // visceral demo value comes from being able to scrub / pause each
+  // one on its own.
   state.els.playerArea.innerHTML = `
     <div class="video-pair">
       <div class="video-column">
         <div class="video-label">Original</div>
         <video id="video-orig" controls preload="metadata" playsinline></video>
-        <div class="subtitle-track-label">
-          <label><input type="checkbox" id="afs-orig"> AFS mode</label>
-        </div>
+        <div class="subtitle-track-label">Subtitles · in sync (reference)</div>
         <div class="subtitle-track" id="sub-orig"></div>
       </div>
       <div class="video-column">
-        <div class="video-label">Edited (3 cuts in first 20s)</div>
+        <div class="video-label">Edited · 3 cuts in first 20 s</div>
         <video id="video-edit" controls preload="metadata" playsinline></video>
         <div class="subtitle-track-label">
-          <label><input type="checkbox" id="afs-edit"> AFS mode</label>
+          <label><input type="checkbox" id="afs-edit"> Use AFS to correct timing</label>
         </div>
         <div class="subtitle-track" id="sub-edit"></div>
       </div>
     </div>
     <div class="demo-explanation">
-      The bottom video has three short scenes removed in the first 20
-      seconds. Both videos share the same correctly-timed SRT (timed
-      for the original). In raw mode the edited video's subtitles fall
-      progressively behind at each cut. AFS mode uses audio
-      fingerprinting to find your actual position in the source, so
-      subtitles stay correct no matter what was cut.
-      <br><br>
-      Play both videos to compare. The AFS in this demo follows the
-      <em>edited</em> video.
+      The right-hand video has three short scenes removed in the
+      first 20 s. Both share the same correctly-timed SRT (timed for
+      the original). Without AFS the edited video's subtitles fall
+      progressively behind at each cut. With AFS, fingerprinting
+      finds the true source position so subtitles stay correct no
+      matter what was cut. Play each video independently to compare.
     </div>
   `;
 
@@ -303,6 +250,13 @@ async function startDesyncVideoDemo() {
   );
   const cues = parseSRT(srtText);
 
+  // The original is the reference — its subtitles always use raw
+  // (video-element) time and never need AFS correction. The edited
+  // video is the one whose subtitles drift; AFS toggling lives only
+  // on its side. The SubtitleRenderer already falls back to raw
+  // time when AFS mode is on but no AFS position has arrived yet,
+  // so toggling early just shows the raw-timed (drifted) subtitle
+  // until the matcher locks on, instead of going blank.
   const rendererOrig = new SubtitleRenderer(
     document.getElementById("sub-orig"),
     cues,
@@ -312,24 +266,30 @@ async function startDesyncVideoDemo() {
     cues,
   );
 
-  document.getElementById("afs-orig").addEventListener("change", (e) => {
-    rendererOrig.setUseAfs(e.target.checked);
-  });
   document.getElementById("afs-edit").addEventListener("change", (e) => {
     rendererEdit.setUseAfs(e.target.checked);
   });
 
-  // The matcher follows the edited video.
+  // The matcher fingerprints the edited audio and locates it inside
+  // the ORIGINAL clip's AFS. That gives a position in original-time,
+  // which is what the SRT is keyed to. Cuts in the edited audio
+  // become "skips" the matcher recovers from via re-acquisition.
   const session = new DemoSession({
     onPosition: (timeMs) => {
       rendererEdit.setAfsTimeMs(timeMs);
-      rendererOrig.setAfsTimeMs(timeMs);
     },
   });
   state.session = session;
   bindSessionStatus(session);
 
-  await session.loadAFS("content/dialogue-clip-edited.afs");
+  // Load the ORIGINAL clip's AFS, not the edited one. The matcher
+  // fingerprints the edited audio (which the user is hearing) and
+  // matches against the original AFS to recover the *original*
+  // source position — which is exactly the time the SRT is keyed
+  // to. After each cut the matcher's local search will miss and
+  // fall through to a cold-start re-acquisition; that's the
+  // recovery behavior the demo is meant to show.
+  await session.loadAFS("content/dialogue-clip.afs");
   await session.startDirect(videoEdit);
 
   startRafLoop(() => {
@@ -339,7 +299,7 @@ async function startDesyncVideoDemo() {
 }
 
 // -----------------------------------------------------------------------
-// Demo 3: haptics (1812 Overture finale + cannon visual + vibration)
+// Cannons demo: 1812 Overture finale + cannon visual + vibration
 // -----------------------------------------------------------------------
 
 async function startHapticsDemo() {
@@ -349,23 +309,14 @@ async function startHapticsDemo() {
     <div class="haptics-stage ${isMic ? "fullscreen" : ""}">
       ${
         isMic
-          ? `<div class="mic-listening">listening to the 1812 Overture finale...</div>`
+          ? `<div class="mic-listening">listening for the finale...</div>`
           : `<audio id="demo-audio" controls preload="metadata"></audio>
-             <div class="haptics-instructions">
-               Cannons fire at 8 moments in the finale. Each one triggers a
-               visual flash here and a phone vibration if you're on a phone
-               (Android browsers only; iOS does not support
-               <code>navigator.vibrate</code>).
-             </div>`
+             <p class="haptics-instructions">Listen for the cannons. The video below fires on each hit.</p>`
       }
-      <video id="cannon-video" class="cannon-video" muted playsinline></video>
+      <video id="cannon-video" class="cannon-video ${isMic ? "fullscreen" : "inline"}" muted playsinline></video>
       <div class="cannon-flash" id="cannon-flash"></div>
     </div>
   `;
-  // Style class adjustments for mic-mode haptics.
-  if (isMic) {
-    document.getElementById("cannon-video").classList.add("fullscreen");
-  }
 
   let audioEl = null;
   if (!isMic) {
@@ -492,15 +443,15 @@ function fireCannon(videoEl, flashEl, fullscreen) {
 }
 
 // -----------------------------------------------------------------------
-// Demo 4: custom files (upload your own)
+// Custom-files demo: upload your own
 // -----------------------------------------------------------------------
 
 async function startCustomDemo() {
   // Custom files demo only makes sense in direct mode (the user is
   // both playing and listening on the same device with their own
-  // files). Force direct mode and update the UI to reflect it.
+  // files).
   if (state.mode !== "direct") {
-    setActiveMode("direct");
+    setMode("direct");
     state.els.qrArea.hidden = true;
   }
 
@@ -584,8 +535,9 @@ async function maybeStartCustom() {
     const genStatus = document.createElement("p");
     genStatus.id = "gen-status";
     genStatus.textContent =
-      "generating AFS from your file (this may take a moment)...";
+      "generating AFS file from your media (this may take a moment)...";
     statusEl.appendChild(genStatus);
+    setStatus("generating AFS file…", "warn");
     try {
       afsBlob = await generateAFSFromFile(customMediaFile);
       genStatus.remove();
@@ -595,6 +547,7 @@ async function maybeStartCustom() {
       statusEl.appendChild(link);
     } catch (err) {
       genStatus.textContent = `AFS generation failed: ${err.message}`;
+      setStatus(`error: ${err.message}`, "error");
       return;
     }
   }
@@ -689,7 +642,6 @@ function stripExtension(name) {
 // -----------------------------------------------------------------------
 
 const demos = {
-  "desync-srt": startDesyncSrtDemo,
   "desync-video": startDesyncVideoDemo,
   haptics: startHapticsDemo,
   custom: startCustomDemo,
@@ -722,15 +674,20 @@ function stopRafLoop() {
 async function startSelectedDemo() {
   if (!state.demoId) return;
   stopCurrentDemo();
+  // Reset the status so it doesn't carry "in sync · 00:01:23" or
+  // an error message from the previous demo. Each demo will then
+  // update the status as it loads / waits for play / locks on.
+  setStatus("idle");
 
-  if (state.mode === "mic") {
+  // QR is available on every built-in demo as a "try on your phone"
+  // affordance. The custom-files demo uses user-uploaded files so a
+  // QR pointing the phone at this device wouldn't make sense.
+  if (state.demoId !== "custom") {
     state.els.qrArea.hidden = false;
     renderQRCodeForCurrentDemo();
   } else {
     state.els.qrArea.hidden = true;
   }
-
-  state.els.fullscreenBtn.hidden = false;
 
   const handler = demos[state.demoId];
   if (!handler) {
@@ -761,9 +718,9 @@ function stopCurrentDemo() {
 // Init
 // -----------------------------------------------------------------------
 
-// Reflect the active demo/mode in the segmented-control DOM. The
-// canonical state lives on state.demoId / state.mode; these helpers
-// just sync the visual `.active` class on the buttons.
+// Reflect the active demo in the tab DOM. The canonical state lives
+// on state.demoId; this helper just syncs the visual `.active` class
+// on the tabs.
 function setActiveDemo(demoId) {
   state.demoId = demoId;
   for (const btn of state.els.demoBtns) {
@@ -772,30 +729,23 @@ function setActiveDemo(demoId) {
   }
 }
 
-function setActiveMode(mode) {
-  state.mode = mode;
-  for (const btn of state.els.modeBtns) {
-    btn.classList.toggle("active", btn.dataset.mode === mode);
-    btn.setAttribute("aria-selected", btn.dataset.mode === mode ? "true" : "false");
-  }
+// Mode is no longer exposed as a UI toggle on the desktop — it's
+// driven by URL param (?mode=mic), which is how the QR-code flow
+// puts a scanning phone into mic mode. Desktop defaults to direct.
+function setMode(mode) {
+  state.mode = mode === "mic" ? "mic" : "direct";
 }
 
 function init() {
   state.els = {
-    demoBtns: document.querySelectorAll(".seg-btn[data-demo]"),
-    modeBtns: document.querySelectorAll(".seg-btn[data-mode]"),
-    fullscreenBtn: document.getElementById("fullscreen-btn"),
+    demoBtns: document.querySelectorAll(".tab[data-demo]"),
     statusText: document.getElementById("status-text"),
     playerArea: document.getElementById("player-area"),
     qrArea: document.getElementById("qr-area"),
     qrCode: document.getElementById("qr-code"),
+    qrLink: document.getElementById("qr-link"),
     customFiles: document.getElementById("custom-files"),
   };
-
-  state.els.fullscreenBtn.addEventListener("click", () => {
-    const area = state.els.playerArea;
-    if (area.requestFullscreen) area.requestFullscreen();
-  });
 
   // Click on a demo tab: activate it and start it. The click itself
   // is the user gesture browsers require for audio autoplay /
@@ -807,23 +757,38 @@ function init() {
     });
   }
 
-  // Click on a mode tab: change mode, and if a demo is already
-  // selected, restart it under the new mode.
-  for (const btn of state.els.modeBtns) {
-    btn.addEventListener("click", () => {
-      setActiveMode(btn.dataset.mode);
-      if (state.demoId) startSelectedDemo();
+  // The "Open in a new window" link uses window.open with explicit
+  // size/position so browsers spawn a real popup window (not a
+  // tab) — the whole point is to have the two side by side. If the
+  // browser refuses (popup blocker), fall back to target="_blank".
+  if (state.els.qrLink) {
+    state.els.qrLink.addEventListener("click", (e) => {
+      const href = state.els.qrLink.href;
+      const w = Math.max(420, Math.floor(window.screen.availWidth / 2));
+      const h = window.screen.availHeight;
+      const left = window.screen.availWidth - w;
+      const features = `popup=yes,width=${w},height=${h},left=${left},top=0`;
+      const opened = window.open(href, "afs-companion", features);
+      if (opened) {
+        e.preventDefault();
+      }
+      // If window.open returned null (blocked), let the default
+      // target="_blank" behavior fire.
     });
   }
 
-  // Read URL parameters (used by QR codes).
+  // Read URL parameters (used by QR codes). If neither is present,
+  // open the page on a default demo so the visitor immediately sees
+  // AFS at work rather than an empty page. The default is the
+  // shifted-subtitles demo: most readable, most obviously
+  // "something is happening" without needing audio output.
   const params = new URLSearchParams(window.location.search);
-  const mode = params.has("mode") ? params.get("mode") : "direct";
-  setActiveMode(mode);
-  if (params.has("demo")) {
-    setActiveDemo(params.get("demo"));
-    setTimeout(() => startSelectedDemo(), 100);
-  }
+  setMode(params.get("mode") || "direct");
+  const demo = params.has("demo") ? params.get("demo") : "desync-video";
+  setActiveDemo(demo);
+  // Defer one tick so the DOM has settled and any layout-dependent
+  // setup inside the demo handlers can run normally.
+  setTimeout(() => startSelectedDemo(), 100);
 
   setStatus("idle");
 }

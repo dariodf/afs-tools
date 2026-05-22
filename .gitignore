@@ -26,6 +26,7 @@ demo/content/*.mp3
 demo/content/*.m4a
 demo/content/*.wav
 demo/content/*.ogv
+demo/content/*.ogg
 
 # Local tool version pins (asdf/mise) — environment-specific
 .tool-versions

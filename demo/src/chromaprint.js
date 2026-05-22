@@ -98,11 +98,15 @@ export async function loadChromaprint() {
   return loadPromise;
 }
 
-// fingerprintAudio: takes a Float32Array of mono samples at 11025 Hz
-// and returns a Uint32Array of chromaprint raw hashes. The
-// audio-capture module already downmixes and resamples to 11025 Hz
-// before calling this. Requires loadChromaprint() to have resolved.
-export function fingerprintAudio(samples) {
+// fingerprintAudio: takes a Float32Array of mono samples at the
+// given sample rate and returns a Uint32Array of chromaprint raw
+// hashes. Chromaprint resamples internally (using its own
+// proper-quality resampler), so we feed it native-rate audio
+// rather than running a cheap linear-interpolation resampler in
+// our worklet — that linear resampler produced hashes that did
+// not match the fpcalc-generated AFS files. Defaults to 11025 Hz
+// if no rate is passed (back-compat / mock paths).
+export function fingerprintAudio(samples, sampleRate = 11025) {
   if (!cpModule) {
     throw new Error(
       "chromaprint not loaded — call await loadChromaprint() first",
@@ -127,7 +131,7 @@ export function fingerprintAudio(samples) {
   }
 
   try {
-    if (!cpModule._chromaprint_start(ctx, 11025, 1)) {
+    if (!cpModule._chromaprint_start(ctx, sampleRate | 0, 1)) {
       throw new Error("chromaprint_start failed");
     }
     if (!cpModule._chromaprint_feed(ctx, inputPtr, int16.length)) {

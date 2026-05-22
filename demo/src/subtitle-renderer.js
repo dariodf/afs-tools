@@ -29,7 +29,13 @@ export class SubtitleRenderer {
 
   setRawTimeMs(ms) {
     this.rawTimeMs = ms;
-    if (!this.useAfs) this.update();
+    // Trigger an update if raw time is the active time source — i.e.
+    // either AFS mode is off, or AFS mode is on but the matcher
+    // hasn't reported a position yet (the renderer falls back to
+    // raw in that case). Without this fallback-trigger, toggling
+    // AFS on before the matcher has locked freezes the subtitle at
+    // whatever cue was active at toggle time.
+    if (!this.useAfs || this.afsTimeMs == null) this.update();
   }
 
   setAfsTimeMs(ms) {

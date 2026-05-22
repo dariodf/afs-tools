@@ -15,43 +15,28 @@
 <body>
   <header>
     <div class="masthead">
-      <div class="wordmark">
-        <span class="wordmark-sigil" aria-hidden="true">∿</span>
-        <span class="wordmark-letters">AFS</span>
+      <div class="masthead-top">
+        <div class="wordmark">
+          <span class="wordmark-sigil" aria-hidden="true">∿</span>
+          <span class="wordmark-letters">AFS</span>
+        </div>
+        <h1 class="tagline">Sync <em>anything</em> to audio.</h1>
+        <nav class="masthead-links" aria-label="Project links">
+          <a href="https://github.com/dariodf/afs">Spec</a>
+          <span aria-hidden="true">/</span>
+          <a href="https://github.com/dariodf/afs-tools">Source</a>
+        </nav>
       </div>
-      <p class="eyebrow">Audio Fingerprint Sync · v0.1</p>
-      <h1 class="tagline">Sync <em>anything</em> to audio.</h1>
-      <p class="lede">An open file format that pairs audio fingerprints with time cues. Any device with a microphone can know <em>where in this audio it is</em>, in real time, without a network.</p>
-      <nav class="masthead-links" aria-label="Project links">
-        <a href="https://github.com/dariodf/afs">Spec</a>
-        <span aria-hidden="true">/</span>
-        <a href="https://github.com/dariodf/afs-tools">Source</a>
-      </nav>
+      <p class="lede">An open file format that fingerprints audio into a stream of time cues. Any device hearing the source (via microphone or local audio) matches the fingerprints to <em>locate itself</em> and stay in sync in real time.</p>
     </div>
   </header>
 
   <main>
-    <section class="controls">
-      <div class="control-group">
-        <span class="control-label">Demo</span>
-        <div class="segmented" role="tablist" aria-label="Demo">
-          <button class="seg-btn" role="tab" data-demo="desync-srt">Desync subtitles</button>
-          <button class="seg-btn" role="tab" data-demo="desync-video">Desync video</button>
-          <button class="seg-btn" role="tab" data-demo="haptics">Cannons</button>
-          <button class="seg-btn" role="tab" data-demo="custom">Your own files</button>
-        </div>
-      </div>
-
-      <div class="control-group">
-        <span class="control-label">Mode</span>
-        <div class="segmented" role="tablist" aria-label="Mode">
-          <button class="seg-btn" role="tab" data-mode="direct">Play here</button>
-          <button class="seg-btn" role="tab" data-mode="mic">Use microphone</button>
-        </div>
-      </div>
-
-      <button id="fullscreen-btn" hidden>Fullscreen</button>
-    </section>
+    <nav class="tabs" role="tablist" aria-label="Demo">
+      <button class="tab" role="tab" data-demo="desync-video">Subtitles</button>
+      <button class="tab" role="tab" data-demo="haptics">Cannons</button>
+      <button class="tab" role="tab" data-demo="custom">Your own files</button>
+    </nav>
 
     <section class="status" id="status" aria-live="polite">
       <span class="status-prompt" aria-hidden="true">›</span>
@@ -77,35 +62,21 @@
       <p class="custom-note">Audio decoding happens in your browser. Files never leave your device. Generated AFS files can be downloaded once ready.</p>
     </section>
 
-    <section class="player-area" id="player-area" aria-live="polite">
-      <div class="empty-state">
-        <p class="empty-state-prompt">Pick a demo to begin.</p>
-        <dl class="demo-index">
-          <div class="demo-index-row">
-            <dt><span class="demo-index-num">01</span> Desync subtitles</dt>
-            <dd>One video, two SRTs — one correct, one shifted +2 s. Toggle AFS correction and watch the off subtitles snap into place.</dd>
-          </div>
-          <div class="demo-index-row">
-            <dt><span class="demo-index-num">02</span> Desync video</dt>
-            <dd>Original clip and an edited version with three short cuts, playing side by side. Same SRT for both. Only the AFS-corrected track stays in sync past the first cut.</dd>
-          </div>
-          <div class="demo-index-row">
-            <dt><span class="demo-index-num">03</span> Cannons</dt>
-            <dd>Tchaikovsky's 1812 finale with screen flashes and phone vibration on every cannon hit. Use mic mode to fire haptics from a phone listening to a laptop speaker.</dd>
-          </div>
-          <div class="demo-index-row">
-            <dt><span class="demo-index-num">04</span> Your own files</dt>
-            <dd>Upload any media file; an AFS is generated in-browser. Optionally bring your own SRT and AFS too. Nothing leaves your device.</dd>
-          </div>
-        </dl>
-      </div>
-    </section>
+    <div class="stage">
+      <section class="player-area" id="player-area" aria-live="polite">
+        <!-- Demo handler populates this region. -->
+      </section>
 
-    <section class="qr-area" id="qr-area" hidden>
-      <p>Scan to open this demo on your phone:</p>
-      <div id="qr-code"></div>
-      <p class="qr-help">In mic mode, the receiving device only needs to hear the audio. Point your phone at the speaker after scanning.</p>
-    </section>
+      <aside class="qr-area" id="qr-area" hidden aria-labelledby="qr-heading">
+        <p class="qr-eyebrow">Try it</p>
+        <h2 class="qr-heading" id="qr-heading">Sync your phone</h2>
+        <p class="qr-pitch">Listen via a microphone — on your phone, another laptop, anything that hears the audio — and stay in sync with this device.</p>
+        <div id="qr-code"></div>
+        <p class="qr-or"><span>or</span></p>
+        <a id="qr-link" class="qr-link" target="_blank" rel="noopener">Open in a new window</a>
+        <p class="qr-help">Point the listening device roughly toward the speaker.</p>
+      </aside>
+    </div>
   </main>
 
   <footer>

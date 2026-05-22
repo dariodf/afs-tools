@@ -43,16 +43,17 @@ else
   echo "  tearsofsteel.en.srt already exists"
 fi
 
-# 1812 Overture - Skidmore College Orchestra (Public Domain via musopen.org)
-if [[ ! -f 1812-overture-full.mp3 ]]; then
-  echo "  fetching 1812 Overture (Skidmore College Orchestra, ~22MB)..."
-  # The archive.org URL has a long encoded filename; using the direct
-  # download endpoint with the identifier and known filename pattern.
-  curl -L -o 1812-overture-full.mp3 \
-    'https://archive.org/download/1812Overture_201603/1812%20Overture.mp3' \
+# 1812 Overture - U.S. Army Band, 2005 (Public Domain).
+# Federal government work; OGG container, ~10 MB. Trimmed in README.md
+# down to the last ~71 seconds (the finale with cannons), then
+# transcoded to MP3 for cross-browser <audio> compatibility.
+if [[ ! -f 1812-army.ogg ]]; then
+  echo "  fetching 1812 Overture (U.S. Army Band, ~10MB)..."
+  curl -L -o 1812-army.ogg \
+    'https://archive.org/download/1812Overture/1812_Overture.ogg' \
     || echo "  WARNING: 1812 Overture download failed; check the URL"
 else
-  echo "  1812-overture-full.mp3 already exists"
+  echo "  1812-army.ogg already exists"
 fi
 
 # Cannon firing video (Public Domain).

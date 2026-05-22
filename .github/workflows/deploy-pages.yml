@@ -24,6 +24,18 @@ jobs:
         with:
           node-version: "20"
 
+      # System dependencies used by the CLI tools and by the
+      # real-chromaprint integration test (test-fpcalc-match.js):
+      #   - libchromaprint-tools provides `fpcalc`
+      #   - ffmpeg is used by tools/afs-generate and by tests that
+      #     trim source media on the fly
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libchromaprint-tools ffmpeg
+          fpcalc -version
+          ffmpeg -version | head -1
+
       - name: Install dependencies
         run: npm install
 
@@ -75,6 +87,10 @@ jobs:
           node test/test-matcher-robustness.js
           node test/test-demo-pipeline.js
           node test/test-imports.js
+          # Integration: real chromaprint via fpcalc -> our matcher.
+          # Gracefully skips if dialogue-clip-edited.mp4 isn't built
+          # (content production is currently manual).
+          node test/test-fpcalc-match.js
 
       - uses: actions/configure-pages@v5
 
