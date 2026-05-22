@@ -109,6 +109,17 @@ function bindSessionStatus(session) {
           "ok",
         );
         break;
+      case "approximate":
+        // Buffer spans a cut — the matcher's position is roughly
+        // right but its tail/head doesn't fully line up. We still
+        // pass the position through (the subtitle stays close to
+        // accurate) but flag it so the user knows we're crossing
+        // an edit boundary.
+        setStatus(
+          `crossing cut · ${formatTimeMs(status.timeMs)} · ${Math.round(status.confidence)}%`,
+          "warn",
+        );
+        break;
       case "error":
         setStatus(`error: ${status.message}`, "error");
         break;
@@ -130,15 +141,41 @@ function formatTimeMs(ms) {
 // QR code rendering
 // -----------------------------------------------------------------------
 
-function renderQRCodeForCurrentDemo() {
-  // Both the QR and the click-to-open link encode mic mode — the
-  // companion device (phone, second laptop, anything with a
-  // microphone) opens listening for the audio. The current device
-  // can be in either mode independently.
+// Per-demo target URL for the "open on companion device" QR
+// code and link. The subtitles demo points to the dedicated
+// listen.html page (no video on the companion device; it just
+// listens via mic and shows subtitles). The cannons demo keeps
+// using the main app's ?mode=mic flow because the cannons
+// experience IS the audio + haptics page — there's nothing on
+// it that wouldn't make sense in mic mode.
+function companionUrlFor(demoId) {
   const url = new URL(window.location.href);
-  url.searchParams.set("demo", state.demoId);
-  url.searchParams.set("mode", "mic");
-  const href = url.toString();
+  if (demoId === "desync-video") {
+    // Subtitles demo: companion goes to listen.html (no video,
+    // just mic + subtitles).
+    url.pathname = url.pathname.replace(/[^/]*$/, "listen.html");
+    url.search = "";
+    url.searchParams.set("afs", "content/dialogue-clip.afs");
+    url.searchParams.set("srt", "content/dialogue-clip.en.srt");
+    url.searchParams.set("title", "Dialogue clip");
+  } else if (demoId === "haptics") {
+    // Cannons demo: companion goes to listen-cannons.html (black
+    // stage, cannon visual + boom on detected hits).
+    url.pathname = url.pathname.replace(/[^/]*$/, "listen-cannons.html");
+    url.search = "";
+    url.searchParams.set("afs", "content/overture-finale.afs");
+    url.searchParams.set("events", "content/overture-finale-cannons.json");
+    url.searchParams.set("title", "1812 Overture · finale");
+  } else {
+    // Custom files: stays on the main app for now.
+    url.searchParams.set("demo", demoId);
+    url.searchParams.set("mode", "mic");
+  }
+  return url.toString();
+}
+
+function renderQRCodeForCurrentDemo() {
+  const href = companionUrlFor(state.demoId);
   state.els.qrCode.innerHTML = qrCode(href, { size: 220 });
   if (state.els.qrLink) {
     state.els.qrLink.href = href;
@@ -195,7 +232,6 @@ async function startDesyncVideoDemo() {
       <span class="afs-mode-label">AFS source:</span>
       <button class="afs-mode-btn" role="tab" data-afs-mode="precalc">Pre-calculated</button>
       <button class="afs-mode-btn" role="tab" data-afs-mode="listen">Listen · audio output</button>
-      <button class="afs-mode-btn" role="tab" data-afs-mode="mic">Listen · microphone</button>
       <span class="afs-mode-detail" id="afs-mode-detail"></span>
     </div>
     <div class="video-pair">
@@ -279,6 +315,52 @@ async function startDesyncVideoDemo() {
       state.session.stop();
       state.session = null;
     }
+    if (state.afsSeekListener) {
+      videoEdit.removeEventListener("seeking", state.afsSeekListener);
+      state.afsSeekListener = null;
+    }
+  }
+
+  // Shared helper for the two live-matcher modes (audio-output and
+  // microphone). Implements the offset-locked rendering strategy:
+  // the matcher provides intermittent (source - playhead) offsets
+  // on confident matches; the rAF loop computes the current source
+  // position as videoEdit.currentTime + lastGoodOffset every frame.
+  //
+  // Why this beats "matcher reports a position, renderer uses it":
+  //   - The matcher fires at ~250 ms, the display refreshes at 60 fps.
+  //     Driving the subtitle off video.currentTime smooths the
+  //     intermediate frames automatically.
+  //   - When the buffer spans a cut (matcher returns ambiguous=true,
+  //     onPosition isn't called), the offset stays put. The subtitle
+  //     keeps advancing with the playhead, just stale-by-the-cut
+  //     amount, rather than jumping backward to the matcher's
+  //     dominant-block report.
+  //   - A seek invalidates the offset; the next confident match
+  //     re-establishes it. During the gap the renderer falls back to
+  //     its raw-time path (no AFS time set), which gracefully shows
+  //     the SRT cue at the local timeline.
+  function startLiveMatcherWithOffset(session) {
+    let afsOffsetMs = null;
+    const onSeek = () => { afsOffsetMs = null; };
+    videoEdit.addEventListener("seeking", onSeek);
+    state.afsSeekListener = onSeek;
+    session.onPosition = (timeMs) => {
+      // timeMs is where the source is at the END of the matcher's
+      // captured buffer (already projected forward by buffer duration
+      // in demo-session.js). videoEdit.currentTime read here aligns
+      // closely enough with that moment that the offset is accurate
+      // to within a frame or two.
+      afsOffsetMs = timeMs - videoEdit.currentTime * 1000;
+    };
+    startRafLoop(() => {
+      const editedMs = videoEdit.currentTime * 1000;
+      rendererOrig.setRawTimeMs(videoOrig.currentTime * 1000);
+      rendererEdit.setRawTimeMs(editedMs);
+      if (afsOffsetMs != null) {
+        rendererEdit.setAfsTimeMs(editedMs + afsOffsetMs);
+      }
+    });
   }
 
   // Mode 1 — pre-calculated time mapping. No matcher, no audio
@@ -308,39 +390,17 @@ async function startDesyncVideoDemo() {
 
   // Mode 2 — live fingerprinting from the <video>'s own audio,
   // matched against the source AFS. The matcher runs every tick;
-  // cuts trigger re-acquisition.
+  // cuts trigger re-acquisition. Display position is computed
+  // from videoEdit.currentTime + last good (source - playhead)
+  // offset every frame — see startLiveMatcherWithOffset.
   async function startListenHereMode() {
-    const session = new DemoSession({
-      onPosition: (timeMs) => rendererEdit.setAfsTimeMs(timeMs),
-    });
+    const session = new DemoSession();
     state.session = session;
     bindSessionStatus(session);
     setModeDetail("matcher running against source AFS");
     await session.loadAFS("content/dialogue-clip.afs");
     await session.startDirect(videoEdit);
-    startRafLoop(() => {
-      rendererOrig.setRawTimeMs(videoOrig.currentTime * 1000);
-      rendererEdit.setRawTimeMs(videoEdit.currentTime * 1000);
-    });
-  }
-
-  // Mode 3 — live fingerprinting from getUserMedia (microphone).
-  // The user-gesture requirement is satisfied by the button click
-  // that switched into this mode.
-  async function startMicMode() {
-    const session = new DemoSession({
-      onPosition: (timeMs) => rendererEdit.setAfsTimeMs(timeMs),
-    });
-    state.session = session;
-    bindSessionStatus(session);
-    setModeDetail("listening for the audio via microphone");
-    await session.loadAFS("content/dialogue-clip.afs");
-    await session.startMic();
-    requestWakeLock();
-    startRafLoop(() => {
-      rendererOrig.setRawTimeMs(videoOrig.currentTime * 1000);
-      rendererEdit.setRawTimeMs(videoEdit.currentTime * 1000);
-    });
+    startLiveMatcherWithOffset(session);
   }
 
   async function switchMode(newMode) {
@@ -352,7 +412,6 @@ async function startDesyncVideoDemo() {
     try {
       if (newMode === "precalc") await startPrecalcMode();
       else if (newMode === "listen") await startListenHereMode();
-      else if (newMode === "mic") await startMicMode();
     } catch (e) {
       console.error(e);
       setStatus(`error: ${e.message}`, "error");
@@ -363,10 +422,10 @@ async function startDesyncVideoDemo() {
     btn.addEventListener("click", () => switchMode(btn.dataset.afsMode));
   }
 
-  // Initial mode: URL ?mode=mic → mic; otherwise default to
-  // pre-calc, which is the recommended path for a local player.
-  const initialMode = state.mode === "mic" ? "mic" : "precalc";
-  await switchMode(initialMode);
+  // Initial mode: pre-calc by default. Mic mode lives on its own
+  // page (listen.html) accessed via the QR code; there's no
+  // ?mode=mic path on the main subtitles demo any more.
+  await switchMode("precalc");
 }
 
 // -----------------------------------------------------------------------
@@ -374,117 +433,163 @@ async function startDesyncVideoDemo() {
 // -----------------------------------------------------------------------
 
 async function startHapticsDemo() {
-  const isMic = state.mode === "mic";
-
+  // Mic mode is on its own page (listen-cannons.html). The main
+  // cannons demo offers two timing sources, matching the subtitles
+  // demo's pattern:
+  //
+  //   Pre-calculated — uses the hand-annotated cannon-events JSON
+  //     directly off the local audio's currentTime. No matcher,
+  //     no chromaprint, no audio capture. What a local player
+  //     would do once it has the timing track for the file.
+  //
+  //   Listen · audio output — live fingerprint the audio element
+  //     and drive haptics from the matcher's reported position.
+  //     Demonstrates the offset adaptation pipeline.
   state.els.playerArea.innerHTML = `
-    <div class="haptics-stage ${isMic ? "fullscreen" : ""}">
-      ${
-        isMic
-          ? `<div class="mic-listening">listening for the finale...</div>`
-          : `<audio id="demo-audio" controls preload="metadata"></audio>
-             <p class="haptics-instructions">Listen for the cannons. The video below fires on each hit.</p>`
-      }
-      <video id="cannon-video" class="cannon-video ${isMic ? "fullscreen" : "inline"}" muted playsinline></video>
+    <div class="afs-mode-row" role="tablist" aria-label="AFS source">
+      <span class="afs-mode-label">AFS source:</span>
+      <button class="afs-mode-btn" role="tab" data-afs-mode="precalc">Pre-calculated</button>
+      <button class="afs-mode-btn" role="tab" data-afs-mode="listen">Listen · audio output</button>
+      <span class="afs-mode-detail" id="afs-mode-detail"></span>
+    </div>
+    <div class="haptics-stage">
+      <audio id="demo-audio" controls preload="metadata"></audio>
+      <p class="haptics-instructions">Press play. The cannon flashes on each hit.</p>
+      <video id="cannon-video" class="cannon-video inline" muted playsinline></video>
       <div class="cannon-flash" id="cannon-flash"></div>
     </div>
   `;
 
-  let audioEl = null;
-  if (!isMic) {
-    audioEl = document.getElementById("demo-audio");
-    audioEl.src = "content/overture-finale.mp3";
-  }
-
+  const audioEl = document.getElementById("demo-audio");
+  audioEl.src = "content/overture-finale.mp3";
   const cannonVideo = document.getElementById("cannon-video");
   cannonVideo.src = "content/cannon-shot.mp4";
   const flashEl = document.getElementById("cannon-flash");
 
-  // Load the cannon-event timings (hand-annotated JSON).
   const events = await fetch("content/overture-finale-cannons.json")
     .then((r) => r.json())
     .then((d) => d.events || []);
 
-  // Latency compensation for the schedule-ahead haptics manager.
-  // The accurate value depends on AudioContext.baseLatency, which is
-  // only readable after a session has started (the context doesn't
-  // exist before then). So we start with a coarse default at
-  // construction and refine via setOffset once the session is up.
-  // A URL param `?offset=N` overrides both, for live tuning.
-  const offsetOverride = new URLSearchParams(window.location.search).get(
-    "offset",
-  );
-  const initialOffsetMs = offsetOverride != null
-    ? Number(offsetOverride)
-    : isMic
-      ? 220
-      : 190;
+  let activeMode = null;
+  let haptics = null;
 
-  const haptics = new HapticsEventManager(events, (event) => {
-    fireCannon(cannonVideo, flashEl, isMic);
-  }, { predictionOffsetMs: initialOffsetMs });
-
-  // Adaptive-offset state. In direct mode, mediaElement.currentTime
-  // is the ground truth for where the audio actually is, so we can
-  // measure the matcher's lag directly each tick and EMA-smooth it.
-  // In mic mode no such reference exists, so we trust the Step 2
-  // computed default. If the user supplied ?offset=N we honor that
-  // and skip adaptation entirely.
-  let computedDefaultMs = initialOffsetMs;
-  let smoothedOffsetMs = initialOffsetMs;
-  const EMA_ALPHA = 0.1;
-  const ADAPT_CAP_MS = 100; // cap drift from computed default
-
-  const session = new DemoSession({
-    onPosition: (timeMs) => {
-      haptics.step(timeMs, performance.now());
-
-      // Step 3: refine offset from observed lag in direct mode.
-      if (
-        offsetOverride == null &&
-        !isMic &&
-        audioEl &&
-        audioEl.currentTime > 0 &&
-        !audioEl.paused
-      ) {
-        const observed = audioEl.currentTime * 1000 - timeMs;
-        smoothedOffsetMs = EMA_ALPHA * observed + (1 - EMA_ALPHA) * smoothedOffsetMs;
-        const lo = computedDefaultMs - ADAPT_CAP_MS;
-        const hi = computedDefaultMs + ADAPT_CAP_MS;
-        const capped = Math.round(Math.max(lo, Math.min(hi, smoothedOffsetMs)));
-        haptics.setOffset(capped);
-      }
-    },
-  });
-  state.session = session;
-  bindSessionStatus(session);
-
-  await session.loadAFS("content/overture-finale.afs");
-  await startSessionFor(session, audioEl);
-
-  // Step 2: now that the AudioContext exists, refine the default
-  // offset using AudioContext.baseLatency + tick + hop averages.
-  // This becomes the baseline that Step 3's adaptive offset can
-  // drift ±ADAPT_CAP_MS away from.
-  if (offsetOverride == null && session.capture?.audioContext) {
-    computedDefaultMs = estimateMatchLatencyMs(session.capture.audioContext, {
-      matchIntervalMs: session.options.matchIntervalMs,
-      isMic,
-    });
-    smoothedOffsetMs = computedDefaultMs;
-    haptics.setOffset(computedDefaultMs);
+  function setModeDetail(text) {
+    document.getElementById("afs-mode-detail").textContent = text;
   }
 
-  // In mic mode, auto-enter fullscreen so the cannon visual takes
-  // the full phone screen. The user's click on "Start" satisfies
-  // the user-gesture requirement for the Fullscreen API.
-  if (isMic && document.documentElement.requestFullscreen) {
-    try {
-      await document.documentElement.requestFullscreen();
-    } catch {
-      // Fullscreen rejected (e.g., iOS Safari quirks). Continue
-      // without it; the demo still works, just with browser chrome.
+  function syncModeButtons(mode) {
+    for (const btn of document.querySelectorAll("[data-afs-mode]")) {
+      btn.classList.toggle("active", btn.dataset.afsMode === mode);
+      btn.setAttribute(
+        "aria-selected",
+        btn.dataset.afsMode === mode ? "true" : "false",
+      );
     }
   }
+
+  async function teardown() {
+    stopRafLoop();
+    if (state.session) {
+      state.session.stop();
+      state.session = null;
+    }
+    if (haptics) {
+      haptics.reset();
+      haptics = null;
+    }
+  }
+
+  // Pre-calc mode: cannons are scheduled from cannon-events JSON
+  // against the audio element's currentTime. No matcher, no AFS.
+  async function startPrecalcMode() {
+    setModeDetail(`${events.length} pre-annotated cannon events`);
+    haptics = new HapticsEventManager(
+      events,
+      () => fireCannon(cannonVideo, flashEl, false),
+      { predictionOffsetMs: 0 },
+    );
+    startRafLoop(() => {
+      if (!audioEl.paused && audioEl.currentTime > 0) {
+        haptics.step(audioEl.currentTime * 1000, performance.now());
+      }
+    });
+    setStatus("ready · press play", "");
+  }
+
+  // Listen mode: matcher reads the audio output via Web Audio,
+  // adaptive offset compensation tunes the schedule-ahead lead time
+  // from observed lag against audioEl.currentTime.
+  async function startListenMode() {
+    setModeDetail("matcher running against source AFS");
+    const offsetOverride = new URLSearchParams(window.location.search).get(
+      "offset",
+    );
+    const initialOffsetMs = offsetOverride != null ? Number(offsetOverride) : 190;
+    haptics = new HapticsEventManager(
+      events,
+      () => fireCannon(cannonVideo, flashEl, false),
+      { predictionOffsetMs: initialOffsetMs },
+    );
+
+    let computedDefaultMs = initialOffsetMs;
+    let smoothedOffsetMs = initialOffsetMs;
+    const EMA_ALPHA = 0.1;
+    const ADAPT_CAP_MS = 100;
+
+    const session = new DemoSession({
+      onPosition: (timeMs) => {
+        haptics.step(timeMs, performance.now());
+        if (
+          offsetOverride == null &&
+          audioEl.currentTime > 0 &&
+          !audioEl.paused
+        ) {
+          const observed = audioEl.currentTime * 1000 - timeMs;
+          smoothedOffsetMs =
+            EMA_ALPHA * observed + (1 - EMA_ALPHA) * smoothedOffsetMs;
+          const lo = computedDefaultMs - ADAPT_CAP_MS;
+          const hi = computedDefaultMs + ADAPT_CAP_MS;
+          const capped = Math.round(Math.max(lo, Math.min(hi, smoothedOffsetMs)));
+          haptics.setOffset(capped);
+        }
+      },
+    });
+    state.session = session;
+    bindSessionStatus(session);
+
+    await session.loadAFS("content/overture-finale.afs");
+    await session.startDirect(audioEl);
+
+    if (offsetOverride == null && session.capture?.audioContext) {
+      computedDefaultMs = estimateMatchLatencyMs(session.capture.audioContext, {
+        matchIntervalMs: session.options.matchIntervalMs,
+        isMic: false,
+      });
+      smoothedOffsetMs = computedDefaultMs;
+      haptics.setOffset(computedDefaultMs);
+    }
+  }
+
+  async function switchMode(newMode) {
+    if (activeMode === newMode) return;
+    activeMode = newMode;
+    syncModeButtons(newMode);
+    await teardown();
+    setStatus("idle");
+    try {
+      if (newMode === "precalc") await startPrecalcMode();
+      else if (newMode === "listen") await startListenMode();
+    } catch (e) {
+      console.error(e);
+      setStatus(`error: ${e.message}`, "error");
+    }
+  }
+
+  for (const btn of document.querySelectorAll("[data-afs-mode]")) {
+    btn.addEventListener("click", () => switchMode(btn.dataset.afsMode));
+  }
+
+  await switchMode("precalc");
 }
 
 // fireCannon: play the cannon clip once, flash the screen, vibrate.

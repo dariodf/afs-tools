@@ -185,7 +185,28 @@ export class AFSMatcher {
     }
     this.stored = stored;
     this.storedTimes = storedTimes; // in milliseconds
-    this.confidenceThreshold = options.confidenceThreshold ?? 60;
+    // Hysteresis: two thresholds for the lock state.
+    //   - stayThreshold: minimum confidence to keep using a match.
+    //     Below this, we drop the lock and let the next tick try
+    //     cold-start fresh.
+    //   - enterThreshold: confidence at which a match is considered
+    //     "in sync" (high trust). Below this, the result is flagged
+    //     `tentative: true` — useful for letting the UI show a
+    //     "still confirming" indicator while the matcher polishes
+    //     its first guess via parallel cold-starts.
+    // Legacy `confidenceThreshold` maps to stayThreshold for back-compat.
+    this.stayThreshold =
+      options.stayThreshold ?? options.confidenceThreshold ?? 60;
+    this.enterThreshold = options.enterThreshold ?? 75;
+    // Cold-start in parallel with local search costs O(stored). When
+    // local is comfortably above enterThreshold we skip the cold-start
+    // — saves work in steady state. When local is below it, parallel
+    // cold-start runs and we swap to its result if it beats local by
+    // this margin in confidence points. A small margin means quick
+    // re-acquisition after a seek/cut; too small means jumpy locks
+    // when noise pushes alternatives close to local.
+    this.swapMarginConfidence = options.swapMarginConfidence ?? 8;
+    this.confidenceThreshold = this.stayThreshold; // back-compat alias
     this.coldStartMinHashes = options.coldStartMinHashes ?? 24;
     this.localWindowRadius = options.localWindowRadius ?? 40;
     this.expectedDriftPerSecond = options.expectedDriftPerSecond ?? 1.0;
@@ -193,18 +214,11 @@ export class AFSMatcher {
 
     // State.
     this.lastMatch = null; // { storedIndex, time_ms, wallTimeMs, confidence }
-    // Pending candidates from a cold-start that found multiple
-    // equally-good positions. Each entry: { storedIndex, wallTimeMs }.
-    // wallTimeMs is the wall-clock time of the capture that suggested
-    // this candidate, so we can compute "expected position now" from
-    // it and re-verify on later steps.
-    this.pendingCandidates = [];
   }
 
   // Reset state, e.g., when the user seeks or switches content.
   reset() {
     this.lastMatch = null;
-    this.pendingCandidates = [];
   }
 
   // Step the matcher with a new captured-hash window. The captured
@@ -213,191 +227,124 @@ export class AFSMatcher {
   // captured.
   //
   // Returns null if no confident match, otherwise:
-  //   { time_ms, storedIndex, confidence, mode: "cold" | "local" | "candidate",
-  //     ambiguous?: boolean, candidates?: number[] }
+  //   {
+  //     time_ms, storedIndex, confidence,
+  //     mode: "cold" | "local",
+  //     tentative?: boolean,    // true if confidence < enterThreshold —
+  //                             // matcher's best guess so far, may still
+  //                             // get refined by upcoming parallel
+  //                             // cold-starts
+  //     ambiguous?: boolean,    // true when the buffer's edges don't
+  //                             // line up with the matched window —
+  //                             // typically means we're spanning a cut.
+  //                             // Position is still approximately right.
+  //   }
   //
-  // When `ambiguous` is true, the matcher found multiple positions
-  // matching nearly equally and is waiting for more audio to
-  // disambiguate. In that case `candidates` lists the stored indices
-  // still under consideration. The caller can choose to display
-  // "syncing..." or hold off on any position-dependent action.
+  // Design intent: show something on screen as fast as possible. We
+  // commit the best candidate at cold-start even when alternatives
+  // are close, marking the result `tentative`. Subsequent ticks run
+  // a parallel cold-start whenever local-search confidence is below
+  // the enterThreshold, and swap to the alternative if it beats
+  // local by `swapMarginConfidence`. The matcher self-corrects an
+  // initial wrong guess without ever leaving the consumer with a
+  // blank screen.
   step(captured, wallTimeMs) {
     const m = captured.length;
+    if (m === 0) return null;
 
-    // Steady-state path: have a previous match, try local search first.
+    // Phase 1: local search around the last committed match.
+    let local = null;
+    let localEdges = null;
     if (this.lastMatch) {
       const elapsedMs = wallTimeMs - this.lastMatch.wallTimeMs;
-      // lastMatch.time_ms is the source position of the START of
-      // the previously-matched window. After elapsedMs of wall-
-      // clock time at the configured drift rate, the START of the
-      // NEW captured window has advanced by that same amount.
-      // (An earlier version of this code subtracted
-      // captureWindowDurationMs here — that pushed the expected
-      // index ~5 seconds in the wrong direction; the local
-      // search then committed to whatever scored above threshold
-      // in that wrong neighborhood, and drift accumulated each
-      // tick. The live-playback simulation test exposed this.)
       const expectedPositionMs =
         this.lastMatch.time_ms + elapsedMs * this.expectedDriftPerSecond;
       const expectedIndex = this._timeMsToIndex(expectedPositionMs);
-
-      const result = localMatch(
+      local = localMatch(
         this.stored,
         captured,
         expectedIndex,
         this.localWindowRadius,
       );
-      if (result && result.confidence >= this.confidenceThreshold) {
-        this.lastMatch = {
-          storedIndex: result.bestIndex,
-          time_ms: this.storedTimes[result.bestIndex],
-          wallTimeMs,
-          confidence: result.confidence,
-        };
-        this.pendingCandidates = [];
-        return {
-          time_ms: this.lastMatch.time_ms,
-          storedIndex: result.bestIndex,
-          confidence: result.confidence,
-          mode: "local",
-        };
+      // Inspect local's edges — if the buffer doesn't line up cleanly
+      // at this position, treat local as "weak" regardless of its
+      // averaged confidence and let cold-start try to find a better
+      // alignment. This is what catches the case where local search
+      // gets stuck on a wrong-but-confident position because the
+      // captured audio's prefix happens to match.
+      if (local) {
+        localEdges = this._verifyEdges(captured, local.bestIndex);
       }
-      // Local search failed; fall through to cold start.
     }
 
-    // Disambiguation path: if we have pending candidates from a
-    // previous tick, re-check each of them at their expected new
-    // position. The capture window is longer now, so the surrounding
-    // context that was missing before may now be present.
-    if (this.pendingCandidates.length > 0 && m >= this.coldStartMinHashes) {
-      const survivors = this._evaluateCandidates(captured, wallTimeMs);
-      if (survivors.length === 1) {
-        // Disambiguated. Lock on.
-        const winner = survivors[0];
-        this.lastMatch = {
-          storedIndex: winner.storedIndex,
-          time_ms: this.storedTimes[winner.storedIndex],
-          wallTimeMs,
-          confidence: winner.confidence,
-        };
-        this.pendingCandidates = [];
-        return {
-          time_ms: this.lastMatch.time_ms,
-          storedIndex: winner.storedIndex,
-          confidence: winner.confidence,
-          mode: "candidate",
-        };
-      }
-      if (survivors.length > 1) {
-        // Still ambiguous. Update pending list and report.
-        this.pendingCandidates = survivors.map((s) => ({
-          storedIndex: s.storedIndex,
-          wallTimeMs,
-        }));
-        return {
-          time_ms: this.storedTimes[survivors[0].storedIndex],
-          storedIndex: survivors[0].storedIndex,
-          confidence: survivors[0].confidence,
-          mode: "candidate",
-          ambiguous: true,
-          candidates: survivors.map((s) => s.storedIndex),
-        };
-      }
-      // All candidates eliminated. Fall through to a fresh cold start.
-      this.pendingCandidates = [];
+    // Phase 2: cold-start when we either have no lock yet, OR our
+    // local result is below the "in sync" threshold, OR local's
+    // edges don't agree (which signals "we may be on the wrong
+    // anchor — try elsewhere"). Skipping cold-start in steady state
+    // is the main CPU win once we're confidently locked.
+    const haveStrongLocal =
+      local && local.confidence >= this.enterThreshold && localEdges && localEdges.ok;
+    const canColdStart = m >= this.coldStartMinHashes;
+    let cold = null;
+    if (!haveStrongLocal && canColdStart) {
+      cold = coldStartMatch(this.stored, captured);
     }
 
-    // Cold-start path: need enough captured hashes to attempt this.
-    if (m < this.coldStartMinHashes) {
+    // Phase 3: pick the winner. Prefer local when both candidates
+    // exist (cheaper, smoother) unless cold is clearly better.
+    let winner = null;
+    let mode = null;
+    if (local && cold) {
+      if (cold.confidence > local.confidence + this.swapMarginConfidence) {
+        winner = cold;
+        mode = "cold";
+      } else {
+        winner = local;
+        mode = "local";
+      }
+    } else if (local) {
+      winner = local;
+      mode = "local";
+    } else if (cold) {
+      winner = cold;
+      mode = "cold";
+    }
+
+    if (!winner) return null;
+
+    // stayThreshold gates whether we report anything at all. Below
+    // this, drop the lock so the next tick can try cold-start from
+    // scratch.
+    if (winner.confidence < this.stayThreshold) {
+      this.lastMatch = null;
       return null;
     }
-    const candidates = coldStartCandidates(this.stored, captured, {
-      ambiguityMargin: this.ambiguityMargin,
-      minConfidence: this.confidenceThreshold,
-    });
-    if (candidates.length === 0) {
-      return null;
-    }
-    if (candidates.length === 1) {
-      // Unambiguous match. Lock on.
-      const c = candidates[0];
-      this.lastMatch = {
-        storedIndex: c.storedIndex,
-        time_ms: this.storedTimes[c.storedIndex],
-        wallTimeMs,
-        confidence: c.confidence,
-      };
-      return {
-        time_ms: this.lastMatch.time_ms,
-        storedIndex: c.storedIndex,
-        confidence: c.confidence,
-        mode: "cold",
-      };
-    }
-    // Multiple equally-good candidates. Remember them and wait for
-    // more audio to disambiguate.
-    this.pendingCandidates = candidates.map((c) => ({
-      storedIndex: c.storedIndex,
+
+    // Edge check: useful for direct-mode consumers that want to
+    // know "I'm crossing a cut, my offset is approximate." Doesn't
+    // prevent committing — the position is still our best guess
+    // and the consumer is free to use it as-is.
+    const edges = this._verifyEdges(captured, winner.bestIndex);
+
+    this.lastMatch = {
+      storedIndex: winner.bestIndex,
+      time_ms: this.storedTimes[winner.bestIndex],
       wallTimeMs,
-    }));
-    return {
-      time_ms: this.storedTimes[candidates[0].storedIndex],
-      storedIndex: candidates[0].storedIndex,
-      confidence: candidates[0].confidence,
-      mode: "cold",
-      ambiguous: true,
-      candidates: candidates.map((c) => c.storedIndex),
+      confidence: winner.confidence,
     };
-  }
 
-  // _evaluateCandidates: for each pending candidate, score the
-  // current captured window at the candidate's "expected position now."
-  // Returns the survivors — candidates whose score is competitive with
-  // the best.
-  _evaluateCandidates(captured, wallTimeMs) {
-    const m = captured.length;
-
-    // For each candidate, compute its "expected stored index at this
-    // wall time." If the user is at this candidate's position, then
-    // elapsed wall time since the candidate's anchor corresponds to
-    // forward movement in the stored array.
-    const scored = [];
-    for (const cand of this.pendingCandidates) {
-      const elapsedMs = wallTimeMs - cand.wallTimeMs;
-      // The capture window's start is (m-1) intervals before "now".
-      // Advance the candidate by elapsedMs of playback, then subtract
-      // the window length to get the window's start position.
-      const candidateNowIdx =
-        cand.storedIndex +
-        Math.round(elapsedMs / CHROMAPRINT_INTERVAL_MS_APPROX);
-      const windowStartIdx = candidateNowIdx - (m - 1);
-      // Score this position. If it's out of bounds, score it as worst.
-      if (windowStartIdx < 0 || windowStartIdx + m > this.stored.length) {
-        continue;
-      }
-      const score = sumHamming(this.stored, windowStartIdx, captured, m);
-      const perHash = score / m;
-      const confidence = 100 * (1 - perHash / 32);
-      scored.push({
-        storedIndex: windowStartIdx,
-        score,
-        perHash,
-        confidence,
-      });
+    const result = {
+      time_ms: this.lastMatch.time_ms,
+      storedIndex: winner.bestIndex,
+      confidence: winner.confidence,
+      mode,
+    };
+    if (winner.confidence < this.enterThreshold) result.tentative = true;
+    if (!edges.ok) {
+      result.ambiguous = true;
+      result.edgeMismatch = { headMean: edges.headMean, tailMean: edges.tailMean };
     }
-
-    if (scored.length === 0) return [];
-
-    // Keep candidates whose score is within the ambiguity margin of
-    // the best, and which meet the confidence threshold.
-    scored.sort((a, b) => a.score - b.score);
-    const bestScore = scored[0].score;
-    const scoreMargin = this.ambiguityMargin * m;
-    return scored.filter(
-      (s) =>
-        s.score <= bestScore + scoreMargin &&
-        s.confidence >= this.confidenceThreshold,
-    );
+    return result;
   }
 
   // Estimate current position by interpolating from the last match using
@@ -407,6 +354,64 @@ export class AFSMatcher {
     if (!this.lastMatch) return null;
     const elapsedMs = wallTimeMs - this.lastMatch.wallTimeMs;
     return this.lastMatch.time_ms + elapsedMs * this.expectedDriftPerSecond;
+  }
+
+  // Internal: verify that the FIRST and LAST K hashes of the
+  // captured window match the source at the expected edge
+  // positions. A clean match has both edges aligning with the
+  // source; a cut-spanning buffer has audio at one or both edges
+  // that comes from a different source segment than the
+  // matcher's window-start picked. The matcher's per-window
+  // confidence is an average and survives a localised
+  // mismatch — but for the position to reflect "where the
+  // playhead is now" we need the trailing edge to be at the
+  // right source spot, and for it to reflect "the matcher
+  // anchored the right way around" we need the leading edge to
+  // be there too. Threshold tuned so clean dialogue/orchestral
+  // matches (per-hash ~0-4) pass and cut-spanning random
+  // alignment (per-hash ~14-16) fails.
+  _verifyEdges(captured, storedIndex) {
+    const m = captured.length;
+    // K = ~1 s of hashes. Small enough to be sensitive to a cut
+    // near either buffer edge; large enough that one or two stray
+    // mismatched hashes don't trip the check on clean audio.
+    const K = Math.min(8, m);
+
+    const inBounds = (idx) => idx >= 0 && idx + K <= this.stored.length;
+
+    function popsumXor(a, aOff, b, bOff, k) {
+      let total = 0;
+      for (let i = 0; i < k; i++) {
+        let x = (a[aOff + i] ^ b[bOff + i]) >>> 0;
+        x = x - ((x >>> 1) & 0x55555555);
+        x = (x & 0x33333333) + ((x >>> 2) & 0x33333333);
+        x = (x + (x >>> 4)) & 0x0f0f0f0f;
+        total += (x * 0x01010101) >>> 24;
+      }
+      return total;
+    }
+
+    let headMean = 0;
+    let tailMean = 0;
+    const headStored = storedIndex;
+    const tailStored = storedIndex + (m - K);
+
+    if (inBounds(headStored)) {
+      headMean = popsumXor(captured, 0, this.stored, headStored, K) / K;
+    }
+    if (inBounds(tailStored)) {
+      tailMean = popsumXor(captured, m - K, this.stored, tailStored, K) / K;
+    }
+    // If either edge runs off the source we can't verify it; rather
+    // than penalize, fall back to whichever edge IS in bounds.
+    const inHead = inBounds(headStored);
+    const inTail = inBounds(tailStored);
+    if (!inHead && !inTail) return { ok: true, headMean: 0, tailMean: 0 };
+    const worst = Math.max(inHead ? headMean : 0, inTail ? tailMean : 0);
+    // 10 bits/hash ≈ 68.75 % confidence — below typical clean-
+    // match per-hash distance (0-6) and above cut-spanning
+    // random-alignment distance (~14-16).
+    return { ok: worst < 10, headMean, tailMean };
   }
 
   // Internal: binary search the storedTimes array for the index whose

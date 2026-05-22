@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>AFS Listen — subtitles via microphone</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0a0a0c" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body class="listen-body">
+    <main class="listen-stage" id="listen-stage" data-state="ready">
+      <header class="listen-header">
+        <div class="listen-source-title" id="listen-source-title">
+          AFS Listen
+        </div>
+        <div class="listen-status" id="listen-status">tap to listen</div>
+      </header>
+
+      <div class="listen-subtitle" id="listen-subtitle">
+        <span class="listen-subtitle-text" id="listen-subtitle-text"></span>
+      </div>
+
+      <button class="listen-start" id="listen-start" type="button">
+        <span class="listen-start-mic" aria-hidden="true">●</span>
+        <span class="listen-start-label">Start listening</span>
+        <span class="listen-start-hint">Uses your microphone</span>
+      </button>
+
+      <footer class="listen-foot">
+        <canvas
+          class="listen-waveform"
+          id="listen-waveform"
+          width="800"
+          height="80"
+          aria-hidden="true"
+        ></canvas>
+      </footer>
+    </main>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "smol-toml": "./vendor/smol-toml/index.js",
+          "@unimusic/chromaprint/dist/chromaprint.js": "./vendor/@unimusic/chromaprint/chromaprint.js"
+        }
+      }
+    </script>
+    <script type="module" src="src/listen.js"></script>
+  </body>
+</html>

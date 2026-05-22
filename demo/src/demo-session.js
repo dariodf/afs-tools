@@ -103,8 +103,12 @@ export class DemoSession {
   _startMatchLoop() {
     this.matcher = new AFSMatcher(this.afs.hashes, this.afs.times, {
       confidenceThreshold: this.options.confidenceThreshold,
+      stayThreshold: this.options.stayThreshold,
+      enterThreshold: this.options.enterThreshold,
+      swapMarginConfidence: this.options.swapMarginConfidence,
       coldStartMinHashes: this.options.coldStartMinHashes,
       localWindowRadius: this.options.localWindowRadius,
+      ambiguityMargin: this.options.ambiguityMargin,
     });
     this.running = true;
     this.matchTimer = setInterval(() => {
@@ -197,10 +201,21 @@ export class DemoSession {
     }
 
     if (result) {
-      if (result.ambiguous) {
-        // Multiple candidate positions match nearly equally. Don't
-        // report a position yet; wait for disambiguation. Show this
-        // to the UI so the user gets useful feedback.
+      // Distinguish two kinds of "ambiguous":
+      //   A. Multi-candidate: matcher found several non-adjacent
+      //      positions matching nearly equally and picked one
+      //      arbitrarily. The reported position may be wildly
+      //      wrong. Suppress: don't update consumer's offset.
+      //   B. Edge mismatch: matcher's window-average score passed
+      //      threshold but the buffer's leading or trailing edge
+      //      doesn't match — i.e., the buffer spans a cut. The
+      //      reported position is approximately right (within
+      //      ~2 s typically). Pass it through: better to nudge
+      //      the offset toward an approximate value than to let
+      //      it go stale by the full cuts-cluster delta.
+      const multiCandidate =
+        result.candidates && result.candidates.length > 1;
+      if (multiCandidate) {
         this.onStatus({
           kind: "ambiguous",
           candidates: result.candidates,
@@ -209,7 +224,7 @@ export class DemoSession {
       } else {
         this.onPosition(positionMs, result.confidence);
         this.onStatus({
-          kind: "matched",
+          kind: result.ambiguous ? "approximate" : "matched",
           timeMs: positionMs,
           confidence: result.confidence,
           mode: result.mode,

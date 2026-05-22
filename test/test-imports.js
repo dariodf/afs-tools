@@ -65,7 +65,11 @@ async function check(file, importer) {
   }
 }
 
-await check(path.join(ROOT, "app.js"), "(entry)");
+// Walk from all three HTML entry points: the main demo (app.js)
+// and the two dedicated mic listen pages.
+await check(path.join(ROOT, "app.js"), "(entry: index.html)");
+await check(path.join(ROOT, "src/listen.js"), "(entry: listen.html)");
+await check(path.join(ROOT, "src/listen-cannons.js"), "(entry: listen-cannons.html)");
 
 if (errors.length > 0) {
   console.error("Import resolution errors:");

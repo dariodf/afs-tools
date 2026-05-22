@@ -182,8 +182,8 @@ for (const t of ticks) t.stable = isStable(t.tSec);
 
 // Report each tick in a compact, scannable table.
 const fmt = (n) => (n == null ? "—".padStart(7) : String(Math.round(n)).padStart(7));
-console.log("  edited   truth     got     err  mode   zone        state");
-console.log("  ─────────────────────────────────────────────────────────────────");
+console.log("  edited   truth     got     err  mode   ambig  zone        state");
+console.log("  ───────────────────────────────────────────────────────────────────────");
 for (const t of ticks) {
   const isCut = CUTS_AT_EDITED_SEC.some((c) => Math.abs(t.tSec - c) < 0.5);
   const cutMarker = isCut ? "  ← cut" : "";
@@ -191,6 +191,7 @@ for (const t of ticks) {
     `  ${String(t.tSec.toFixed(0)).padStart(3)} s  ` +
       `${fmt(t.truthMs)}  ${fmt(t.gotMs)}  ${fmt(t.errMs)}  ` +
       `${(t.mode ?? "—").padEnd(5)}  ` +
+      `${t.ambiguous ? "yes  " : "no   "}  ` +
       `${t.stable ? "stable    " : "transient "}  ` +
       `${t.classification}${cutMarker}`,
   );
@@ -235,6 +236,32 @@ if (trackingRatio < MIN_TRACKING_RATIO) {
   fail(
     `tracking ratio ${(trackingRatio * 100).toFixed(1)}% below minimum ` +
       `${(MIN_TRACKING_RATIO * 100).toFixed(0)}%`,
+  );
+  assertionFailures += 1;
+}
+// 3. The matcher should self-flag MOST transient ticks where it's
+//    reporting a wrong position. The edge-check (head+tail Hamming
+//    distance against the projected source positions) is the signal
+//    used here. It's not perfect — a buffer that happens to span
+//    similar audio at both edges can slip through — but it should
+//    catch the vast majority of cut-spanning ticks. Allow up to one
+//    miss per cuts cluster as a tolerable limitation.
+const transientNotTracking = transientTicks.filter(
+  (t) => t.classification !== "tracking",
+);
+const unflagged = transientNotTracking.filter((t) => !t.ambiguous);
+const maxUnflagged = Math.max(1, Math.floor(transientNotTracking.length * 0.15));
+if (unflagged.length > maxUnflagged) {
+  fail(
+    `${unflagged.length} transient tick(s) reported a wrong position ` +
+      `with ambiguous=false (max allowed ${maxUnflagged} = 15 % of ${transientNotTracking.length} ` +
+      `non-tracking transient ticks):` +
+      unflagged
+        .map(
+          (t) =>
+            `\n      edited ${t.tSec}s: got ${t.gotMs} (err ${t.errMs}) — ${t.classification}`,
+        )
+        .join(""),
   );
   assertionFailures += 1;
 }

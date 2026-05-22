@@ -99,54 +99,59 @@ function captureFromStored(stored, position, length, noiseBitsPerHash = 0) {
 }
 
 // -----------------------------------------------------------------------
-// Multi-candidate cold start
+// Optimistic cold start + parallel-search correction
 // -----------------------------------------------------------------------
+// Behavior contract: the matcher commits the best candidate as soon as
+// it has enough audio to attempt a match, even when alternatives are
+// close. On subsequent ticks, while the lock confidence is below the
+// "enter" threshold, the matcher runs a parallel cold-start and swaps
+// to the alternative if it beats current by `swapMarginConfidence`.
+// The earlier "wait for disambiguation" path is gone — we'd rather
+// show the wrong subtitle for ~250 ms than show nothing for 2 s.
 
-test("ambiguity: motif-only capture reports multiple candidates", () => {
-  // Capture exactly the motif. Both occurrences should match equally.
+test("motif-only capture: commits one of the equal candidates immediately", () => {
+  // The motif appears at two positions in the stored array. The
+  // optimistic-commit design says: pick one and run with it; the
+  // parallel search will correct if extended capture proves otherwise.
+  // We don't try to detect "tied alternatives" — that signal goes
+  // through confidence, not a separate flag.
   const seq = buildRepeatedSequence({});
   const matcher = new AFSMatcher(seq.stored, seq.storedTimes, {
     coldStartMinHashes: 24,
-    confidenceThreshold: 60,
+    stayThreshold: 60,
+    enterThreshold: 75,
   });
 
-  // Capture only the motif itself. Two stored positions match perfectly.
   const captured = captureFromStored(seq.stored, seq.firstOccurrence, seq.motif.length);
   const result = matcher.step(captured, 1000);
 
-  // Expected: the matcher returns null (not confident enough to pick),
-  // OR returns a result with an explicit "ambiguous" flag and the list
-  // of candidate positions.
-  if (result === null) {
-    // Acceptable: matcher refused to lock on. Verify it knows there
-    // were candidates.
-    assert(
-      matcher.pendingCandidates && matcher.pendingCandidates.length >= 2,
-      `expected at least 2 pending candidates, got ${matcher.pendingCandidates?.length}`,
-    );
-  } else {
-    // Or: returned a result with ambiguous flag.
-    assertEqual(result.ambiguous, true, "result should be flagged ambiguous");
-    assert(
-      Array.isArray(result.candidates) && result.candidates.length >= 2,
-      `expected candidates array with >= 2 entries, got ${result.candidates?.length}`,
-    );
-  }
+  assert(result !== null, "matcher should commit something on motif-only capture");
+  const pickedOne =
+    result.storedIndex === seq.firstOccurrence ||
+    result.storedIndex === seq.secondOccurrence;
+  assert(
+    pickedOne,
+    `expected pick at first (${seq.firstOccurrence}) or second (${seq.secondOccurrence}) occurrence, got ${result.storedIndex}`,
+  );
 });
 
-test("disambiguation: longer capture resolves to correct occurrence", () => {
+test("parallel-search swap: extended capture corrects an initial wrong guess", () => {
+  // Audio actually starts at the SECOND occurrence. Initial capture
+  // covers only the shared motif — the matcher might commit to either
+  // occurrence (the optimistic-commit contract). On the next tick,
+  // longer audio reveals the post-motif context unique to occurrence 2,
+  // and parallel cold-start swaps the lock to the correct position.
   const seq = buildRepeatedSequence({});
   const matcher = new AFSMatcher(seq.stored, seq.storedTimes, {
     coldStartMinHashes: 24,
-    confidenceThreshold: 60,
+    stayThreshold: 60,
+    enterThreshold: 75,
+    swapMarginConfidence: 4,
   });
 
-  // First tick: capture the motif (ambiguous).
   const initial = captureFromStored(seq.stored, seq.secondOccurrence, seq.motif.length);
   matcher.step(initial, 1000);
 
-  // Second tick: extend the capture with audio AFTER the motif at the
-  // second occurrence. The post-motif context is unique to occurrence 2.
   const extendedLength = seq.motif.length + 16;
   const extended = captureFromStored(
     seq.stored,
@@ -155,16 +160,11 @@ test("disambiguation: longer capture resolves to correct occurrence", () => {
   );
   const result = matcher.step(extended, 2000);
 
-  assert(result !== null, "should lock on after disambiguating context");
-  assertEqual(
-    result.ambiguous ?? false,
-    false,
-    "ambiguity should be resolved",
-  );
+  assert(result !== null, "should still have a lock after extended capture");
   assertEqual(
     result.storedIndex,
     seq.secondOccurrence,
-    "should pick the SECOND occurrence (where the capture actually came from)",
+    "extended capture should resolve to the SECOND occurrence (where the audio actually is)",
   );
 });
 
