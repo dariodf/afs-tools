@@ -227,11 +227,18 @@ export class AFSMatcher {
     // Steady-state path: have a previous match, try local search first.
     if (this.lastMatch) {
       const elapsedMs = wallTimeMs - this.lastMatch.wallTimeMs;
-      const captureWindowDurationMs = (m - 1) * CHROMAPRINT_INTERVAL_MS_APPROX;
+      // lastMatch.time_ms is the source position of the START of
+      // the previously-matched window. After elapsedMs of wall-
+      // clock time at the configured drift rate, the START of the
+      // NEW captured window has advanced by that same amount.
+      // (An earlier version of this code subtracted
+      // captureWindowDurationMs here — that pushed the expected
+      // index ~5 seconds in the wrong direction; the local
+      // search then committed to whatever scored above threshold
+      // in that wrong neighborhood, and drift accumulated each
+      // tick. The live-playback simulation test exposed this.)
       const expectedPositionMs =
-        this.lastMatch.time_ms +
-        elapsedMs * this.expectedDriftPerSecond -
-        captureWindowDurationMs;
+        this.lastMatch.time_ms + elapsedMs * this.expectedDriftPerSecond;
       const expectedIndex = this._timeMsToIndex(expectedPositionMs);
 
       const result = localMatch(

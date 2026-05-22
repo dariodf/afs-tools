@@ -42,7 +42,12 @@ export class HapticsEventManager {
     this.scheduleHorizonMs = options.scheduleHorizonMs ?? 5000;
     this.rescheduleThresholdMs = options.rescheduleThresholdMs ?? 30;
     this.schedule = options.schedule ?? ((cb, ms) => setTimeout(cb, ms));
-    this.cancel = options.cancel ?? clearTimeout;
+    // Wrap clearTimeout in an arrow so it doesn't lose its `this`
+    // context when called as `this.cancel(handle)`. Browser DOM
+    // globals (setTimeout, clearTimeout) require this=window and
+    // throw "Illegal invocation" if you store and re-invoke them
+    // as a property.
+    this.cancel = options.cancel ?? ((handle) => clearTimeout(handle));
 
     // Per-event state:
     //   pending[i] = { handle, targetWallTime } if a fire is scheduled

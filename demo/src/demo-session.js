@@ -143,12 +143,31 @@ export class DemoSession {
 
     let hashes;
     try {
-      hashes = fingerprintAudio(samples);
+      // Feed chromaprint the audio at the capture's native rate.
+      // Chromaprint resamples to its analysis rate internally with
+      // a proper FIR filter, which matches what fpcalc does — so
+      // the resulting hashes correlate with the stored AFS file.
+      hashes = fingerprintAudio(samples, this.capture.sampleRate);
     } catch (e) {
       this.onStatus({ kind: "error", message: String(e) });
       return;
     }
     const result = this.matcher.step(hashes, performance.now());
+
+    // The matcher reports `result.time_ms` as the source position
+    // at the START of the captured window — i.e., where the
+    // OLDEST sample in our buffer was in the source. For "where
+    // is the source NOW", project forward by the buffer's
+    // duration. The newest sample is exactly that many ms after
+    // the oldest. (This is more accurate than projecting by
+    // (hashes.length - 1) * hop, which only reaches the start of
+    // the last analysis window — chromaprint's 2.6-s window depth
+    // means the actual end-of-audio sits beyond that.)
+    const captureDurationMs =
+      (samples.length / this.capture.sampleRate) * 1000;
+    const positionMs = result
+      ? result.time_ms + captureDurationMs
+      : null;
 
     // Diagnostic: compute hamming-distance histogram between the
     // captured hashes and the AFS hashes at the best-match position.
@@ -170,7 +189,7 @@ export class DemoSession {
         bufferedSamples: samples.length,
         bufferNeeded: 3 * 11025,
         capturedHashes: hashes,
-        position: result ? result.time_ms : null,
+        position: positionMs,
         confidence: result ? result.confidence : null,
         matcherMode: result ? result.mode : "searching",
         histogram,
@@ -188,10 +207,10 @@ export class DemoSession {
           confidence: result.confidence,
         });
       } else {
-        this.onPosition(result.time_ms, result.confidence);
+        this.onPosition(positionMs, result.confidence);
         this.onStatus({
           kind: "matched",
-          timeMs: result.time_ms,
+          timeMs: positionMs,
           confidence: result.confidence,
           mode: result.mode,
         });

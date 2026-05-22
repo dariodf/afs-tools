@@ -4,12 +4,14 @@
 // Wires up the UI to the AFS modules. Each demo lives as a separate
 // async function that's selected based on the dropdown value.
 
+import { parseAFS } from "./src/afs-parser.js";
 import { parseSRT } from "./src/srt-parser.js";
 import { DemoSession } from "./src/demo-session.js";
 import { SubtitleRenderer } from "./src/subtitle-renderer.js";
 import { HapticsEventManager } from "./src/haptics-events.js";
 import { writeAFS } from "./src/afs-writer.js";
 import { mockFingerprint, estimateMatchLatencyMs } from "./src/chromaprint.js";
+import { computeTimeMapping } from "./src/afs-mapping.js";
 import { qrCode } from "./src/vendor/qr-code.js";
 import { DebugPanel } from "./src/debug-panel.js";
 
@@ -166,54 +168,36 @@ async function startSessionFor(session, mediaElementOrNull) {
 // -----------------------------------------------------------------------
 
 async function startDesyncVideoDemo() {
-  const isMic = state.mode === "mic";
-
-  if (isMic) {
-    // Mic mode: the phone (or whichever device this is on) only
-    // hears the edited video being played somewhere else. No
-    // side-by-side comparison is possible here; show the synced
-    // subtitles for the edited video alone.
-    state.els.playerArea.innerHTML = `
-      <div class="mic-listening">
-        Listening for the edited video...
-        <div class="mic-instructions">
-          Play <code>content/dialogue-clip-edited.mp4</code> on another
-          device. This phone will sync to its audio.
-        </div>
-      </div>
-      <div class="subtitle-track subtitle-large" id="sub-mic"></div>
-      <div class="demo-explanation">
-        The video being played has three short cuts in the first 20
-        seconds. Despite the cuts, AFS keeps these subtitles in sync
-        with the audio.
-      </div>
-    `;
-    const srtText = await fetch("content/dialogue-clip.en.srt").then((r) =>
-      r.text(),
-    );
-    const cues = parseSRT(srtText);
-    const renderer = new SubtitleRenderer(
-      document.getElementById("sub-mic"),
-      cues,
-    );
-    renderer.setUseAfs(true);
-
-    const session = new DemoSession({
-      onPosition: (timeMs) => renderer.setAfsTimeMs(timeMs),
-    });
-    state.session = session;
-    bindSessionStatus(session);
-    await session.loadAFS("content/dialogue-clip-edited.afs");
-    await startSessionFor(session, null);
-    return;
-  }
-
-  // Direct mode: side-by-side comparison with INDEPENDENT playback
-  // for each video. These are two different files (one with cuts);
-  // forcing shared transport would lock them together when the
-  // visceral demo value comes from being able to scrub / pause each
-  // one on its own.
+  // ------------------------------------------------------------
+  // Static UI. The mode toggle below the videos lets the user
+  // pick between the three ways AFS can locate the current source
+  // position:
+  //
+  //   - "Pre-calc" (Mode 1, default): both AFS files were
+  //     pre-computed; we build a derived→source time mapping
+  //     once and drive subtitles via mediaElement.currentTime.
+  //     No audio capture, no microphone, no matcher running
+  //     per tick. This is what a real local player would do.
+  //
+  //   - "Listen here" (Mode 2): live fingerprinting from the
+  //     <video> element's own audio. The matcher runs every
+  //     tick. Demonstrates that AFS works without any pre-
+  //     computed mapping — useful when you don't have the
+  //     derived clip's AFS, only the source's.
+  //
+  //   - "Microphone" (Mode 3): live fingerprinting from
+  //     getUserMedia. The killer use case — a second device
+  //     can listen via mic and stay in sync without any data
+  //     connection between devices.
+  // ------------------------------------------------------------
   state.els.playerArea.innerHTML = `
+    <div class="afs-mode-row" role="tablist" aria-label="AFS source">
+      <span class="afs-mode-label">AFS source:</span>
+      <button class="afs-mode-btn" role="tab" data-afs-mode="precalc">Pre-calculated</button>
+      <button class="afs-mode-btn" role="tab" data-afs-mode="listen">Listen · audio output</button>
+      <button class="afs-mode-btn" role="tab" data-afs-mode="mic">Listen · microphone</button>
+      <span class="afs-mode-detail" id="afs-mode-detail"></span>
+    </div>
     <div class="video-pair">
       <div class="video-column">
         <div class="video-label">Original</div>
@@ -236,7 +220,7 @@ async function startDesyncVideoDemo() {
       the original). Without AFS the edited video's subtitles fall
       progressively behind at each cut. With AFS, fingerprinting
       finds the true source position so subtitles stay correct no
-      matter what was cut. Play each video independently to compare.
+      matter what was cut.
     </div>
   `;
 
@@ -253,10 +237,7 @@ async function startDesyncVideoDemo() {
   // The original is the reference — its subtitles always use raw
   // (video-element) time and never need AFS correction. The edited
   // video is the one whose subtitles drift; AFS toggling lives only
-  // on its side. The SubtitleRenderer already falls back to raw
-  // time when AFS mode is on but no AFS position has arrived yet,
-  // so toggling early just shows the raw-timed (drifted) subtitle
-  // until the matcher locks on, instead of going blank.
+  // on its side.
   const rendererOrig = new SubtitleRenderer(
     document.getElementById("sub-orig"),
     cues,
@@ -270,32 +251,122 @@ async function startDesyncVideoDemo() {
     rendererEdit.setUseAfs(e.target.checked);
   });
 
-  // The matcher fingerprints the edited audio and locates it inside
-  // the ORIGINAL clip's AFS. That gives a position in original-time,
-  // which is what the SRT is keyed to. Cuts in the edited audio
-  // become "skips" the matcher recovers from via re-acquisition.
-  const session = new DemoSession({
-    onPosition: (timeMs) => {
-      rendererEdit.setAfsTimeMs(timeMs);
-    },
-  });
-  state.session = session;
-  bindSessionStatus(session);
+  // ------------------------------------------------------------
+  // Mode dispatch
+  // ------------------------------------------------------------
 
-  // Load the ORIGINAL clip's AFS, not the edited one. The matcher
-  // fingerprints the edited audio (which the user is hearing) and
-  // matches against the original AFS to recover the *original*
-  // source position — which is exactly the time the SRT is keyed
-  // to. After each cut the matcher's local search will miss and
-  // fall through to a cold-start re-acquisition; that's the
-  // recovery behavior the demo is meant to show.
-  await session.loadAFS("content/dialogue-clip.afs");
-  await session.startDirect(videoEdit);
+  // Driver functions update the edit-side subtitle's AFS time
+  // from whichever source the active mode supplies.
+  let activeMode = null;
 
-  startRafLoop(() => {
-    rendererOrig.setRawTimeMs(videoOrig.currentTime * 1000);
-    rendererEdit.setRawTimeMs(videoEdit.currentTime * 1000);
-  });
+  function setModeDetail(text) {
+    document.getElementById("afs-mode-detail").textContent = text;
+  }
+
+  function syncModeButtons(mode) {
+    for (const btn of document.querySelectorAll("[data-afs-mode]")) {
+      btn.classList.toggle("active", btn.dataset.afsMode === mode);
+      btn.setAttribute(
+        "aria-selected",
+        btn.dataset.afsMode === mode ? "true" : "false",
+      );
+    }
+  }
+
+  async function teardownActiveMode() {
+    stopRafLoop();
+    if (state.session) {
+      state.session.stop();
+      state.session = null;
+    }
+  }
+
+  // Mode 1 — pre-calculated time mapping. No matcher, no audio
+  // capture. We fetch both AFS files, compute a mapping once,
+  // and on each frame look up the source position from the edited
+  // <video>'s currentTime.
+  async function startPrecalcMode() {
+    const [sourceAfs, derivedAfs] = await Promise.all([
+      fetch("content/dialogue-clip.afs").then((r) => r.text()).then(parseAFS),
+      fetch("content/dialogue-clip-edited.afs")
+        .then((r) => r.text())
+        .then(parseAFS),
+    ]);
+    const mapping = computeTimeMapping(sourceAfs, derivedAfs);
+    setModeDetail(
+      `${mapping.blocks.length} blocks · ${mapping.anchors.length} anchors`,
+    );
+    setStatus("ready · press play", "");
+    startRafLoop(() => {
+      const editedMs = videoEdit.currentTime * 1000;
+      rendererOrig.setRawTimeMs(videoOrig.currentTime * 1000);
+      rendererEdit.setRawTimeMs(editedMs);
+      const sourceMs = mapping.lookup(editedMs);
+      if (sourceMs != null) rendererEdit.setAfsTimeMs(sourceMs);
+    });
+  }
+
+  // Mode 2 — live fingerprinting from the <video>'s own audio,
+  // matched against the source AFS. The matcher runs every tick;
+  // cuts trigger re-acquisition.
+  async function startListenHereMode() {
+    const session = new DemoSession({
+      onPosition: (timeMs) => rendererEdit.setAfsTimeMs(timeMs),
+    });
+    state.session = session;
+    bindSessionStatus(session);
+    setModeDetail("matcher running against source AFS");
+    await session.loadAFS("content/dialogue-clip.afs");
+    await session.startDirect(videoEdit);
+    startRafLoop(() => {
+      rendererOrig.setRawTimeMs(videoOrig.currentTime * 1000);
+      rendererEdit.setRawTimeMs(videoEdit.currentTime * 1000);
+    });
+  }
+
+  // Mode 3 — live fingerprinting from getUserMedia (microphone).
+  // The user-gesture requirement is satisfied by the button click
+  // that switched into this mode.
+  async function startMicMode() {
+    const session = new DemoSession({
+      onPosition: (timeMs) => rendererEdit.setAfsTimeMs(timeMs),
+    });
+    state.session = session;
+    bindSessionStatus(session);
+    setModeDetail("listening for the audio via microphone");
+    await session.loadAFS("content/dialogue-clip.afs");
+    await session.startMic();
+    requestWakeLock();
+    startRafLoop(() => {
+      rendererOrig.setRawTimeMs(videoOrig.currentTime * 1000);
+      rendererEdit.setRawTimeMs(videoEdit.currentTime * 1000);
+    });
+  }
+
+  async function switchMode(newMode) {
+    if (activeMode === newMode) return;
+    activeMode = newMode;
+    syncModeButtons(newMode);
+    await teardownActiveMode();
+    setStatus("idle");
+    try {
+      if (newMode === "precalc") await startPrecalcMode();
+      else if (newMode === "listen") await startListenHereMode();
+      else if (newMode === "mic") await startMicMode();
+    } catch (e) {
+      console.error(e);
+      setStatus(`error: ${e.message}`, "error");
+    }
+  }
+
+  for (const btn of document.querySelectorAll("[data-afs-mode]")) {
+    btn.addEventListener("click", () => switchMode(btn.dataset.afsMode));
+  }
+
+  // Initial mode: URL ?mode=mic → mic; otherwise default to
+  // pre-calc, which is the recommended path for a local player.
+  const initialMode = state.mode === "mic" ? "mic" : "precalc";
+  await switchMode(initialMode);
 }
 
 // -----------------------------------------------------------------------

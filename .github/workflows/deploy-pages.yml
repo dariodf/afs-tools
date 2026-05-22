@@ -91,6 +91,25 @@ jobs:
           # Gracefully skips if dialogue-clip-edited.mp4 isn't built
           # (content production is currently manual).
           node test/test-fpcalc-match.js
+          # Robustness: cuts timeline, sample-rate range, mic-mode noise.
+          node test/test-fpcalc-robustness.js
+          # Live-playback simulation — exercises the matcher's
+          # steady-state local-search behavior tick-by-tick the way
+          # the live demo does. Catches "reported position drifts
+          # from playhead" bugs that other tests don't surface.
+          node test/test-live-playback-sim.js
+          # Pre-calc time-mapping — Mode 1's offline-only path.
+          # Doesn't need fpcalc (works from committed AFS files).
+          node test/test-precalc-mapping.js
+          # Three-mode comparison — same probe point through each
+          # of the user-facing modes (precalc, listen-audio-output,
+          # listen-microphone-with-simulated-degradation).
+          node test/test-three-modes.js
+          # Full-playback walk — tick-by-tick simulation of an
+          # entire demo session through the matcher, asserting
+          # tracking through all blocks and bounded recovery
+          # across cuts.
+          node test/test-full-playback-walk.js
 
       - uses: actions/configure-pages@v5
 

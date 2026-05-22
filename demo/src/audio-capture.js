@@ -1,22 +1,30 @@
 // audio-capture.js
-// Unified audio capture for direct mode (from a <video>/<audio> element)
-// and mic mode (from the microphone).
+// Unified audio capture for direct mode (from a <video>/<audio>
+// element) and mic mode (from the microphone).
 //
 // The capture pipeline:
-//   source -> AudioContext -> ScriptProcessor/AudioWorklet -> chunk callback
+//   source -> AudioContext -> AudioWorklet (downmix to mono) -> ring buffer
 //
-// Captured audio is converted to mono Float32 at chromaprint's expected
-// sample rate (11025 Hz) before being passed to the chromaprint module.
+// Audio is held in the ring buffer at the AudioContext's NATIVE
+// sample rate (typically 48 000 Hz). We deliberately don't
+// resample down to 11025 Hz here — chromaprint resamples
+// internally with a proper FIR filter, which matches what fpcalc
+// does and what the AFS files were fingerprinted with.
 //
-// We use a circular buffer to hold the most recent N seconds of audio.
-// The matcher consumes hashes derived from this buffer.
+// The previous version resampled to 11025 Hz in the worklet using
+// linear interpolation. That produced aliased audio whose hashes
+// didn't match any specific position in the stored AFS — the
+// matcher reported "many candidates, none confident" identically
+// to the way it does on unrelated audio. Bypassing our resampler
+// fixes that.
 
-// Chromaprint expects 11025 Hz mono. The browser's AudioContext typically
-// runs at 44100 or 48000 Hz, so we resample.
+// Chromaprint's analysis rate. Exported because the spec and some
+// docs still reference it; not used for buffer sizing anymore.
 export const CHROMAPRINT_SAMPLE_RATE = 11025;
 
-// Default buffer length in seconds. The matcher needs at least 3 seconds
-// to attempt a cold-start match, so we keep ~8 seconds for safety.
+// Default ring-buffer length in seconds. The matcher needs at
+// least 3 seconds of audio to attempt a cold-start match; ~8 s of
+// headroom is reasonable.
 export const DEFAULT_BUFFER_SECONDS = 8;
 
 export class AudioCapture {
@@ -27,16 +35,15 @@ export class AudioCapture {
     this.source = null;
     this.processor = null;
     this.stream = null;
-    // Circular buffer for resampled mono Float32 samples at 11025 Hz.
-    this.buffer = new Float32Array(
-      this.bufferSeconds * CHROMAPRINT_SAMPLE_RATE,
-    );
+    // The ring buffer is allocated lazily in _ensureContext once
+    // we know the AudioContext's sample rate. Until then,
+    // `sampleRate` is 0 and `buffer` is null.
+    this.sampleRate = 0;
+    this.buffer = null;
     this.bufferWritePos = 0;
     this.bufferSamplesWritten = 0;
   }
 
-  // Start capturing from a MediaStream (from getUserMedia, for mic mode)
-  // or from an HTMLMediaElement (for direct mode).
   async startFromMediaElement(mediaElement) {
     this._ensureContext();
     this.source = this.audioContext.createMediaElementSource(mediaElement);
@@ -87,14 +94,16 @@ export class AudioCapture {
   }
 
   // Get a snapshot of the most recent `seconds` of audio as a
-  // Float32Array at 11025 Hz. Returns null if not enough audio buffered.
+  // Float32Array at the native sample rate. Returns null if not
+  // enough audio is buffered. The caller should pass this together
+  // with `this.sampleRate` to chromaprint so it can resample
+  // properly.
   getRecentSamples(seconds) {
-    const wanted = Math.floor(seconds * CHROMAPRINT_SAMPLE_RATE);
+    if (!this.buffer) return null;
+    const wanted = Math.floor(seconds * this.sampleRate);
     if (this.bufferSamplesWritten < wanted) return null;
     const result = new Float32Array(wanted);
     const bufLen = this.buffer.length;
-    // The most recent sample is at (bufferWritePos - 1) mod bufLen.
-    // We want the last `wanted` samples ending there.
     const end = this.bufferWritePos;
     const start = (end - wanted + bufLen) % bufLen;
     if (start + wanted <= bufLen) {
@@ -110,6 +119,10 @@ export class AudioCapture {
   _ensureContext() {
     if (this.audioContext) return;
     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    this.sampleRate = this.audioContext.sampleRate;
+    this.buffer = new Float32Array(this.bufferSeconds * this.sampleRate);
+    this.bufferWritePos = 0;
+    this.bufferSamplesWritten = 0;
   }
 
   async _attachProcessor() {
@@ -123,14 +136,8 @@ export class AudioCapture {
         const node = new AudioWorkletNode(
           this.audioContext,
           "afs-capture-processor",
-          {
-            processorOptions: {
-              targetSampleRate: CHROMAPRINT_SAMPLE_RATE,
-              sourceSampleRate: this.audioContext.sampleRate,
-            },
-          },
         );
-        node.port.onmessage = (e) => this._onWorkletSamples(e.data);
+        node.port.onmessage = (e) => this._writeToBuffer(e.data);
         this.source.connect(node);
         node.connect(this.audioContext.destination);
         this.processor = node;
@@ -139,27 +146,30 @@ export class AudioCapture {
         console.warn("AudioWorklet failed, falling back to ScriptProcessor:", e);
       }
     }
-    // ScriptProcessor fallback. Buffer size 4096 is typical.
+    // ScriptProcessor fallback. Buffer size 4096 is typical. We
+    // pass samples through at native rate, mono — same contract as
+    // the worklet path.
     const bufSize = 4096;
     const proc = this.audioContext.createScriptProcessor(bufSize, 1, 1);
-    proc.onaudioprocess = (e) => this._onScriptProcessor(e);
+    proc.onaudioprocess = (e) => {
+      const channels = e.inputBuffer.numberOfChannels;
+      const mono =
+        channels === 1
+          ? e.inputBuffer.getChannelData(0).slice()
+          : downmixToMono(
+              Array.from({ length: channels }, (_, c) =>
+                e.inputBuffer.getChannelData(c),
+              ),
+            );
+      this._writeToBuffer(mono);
+    };
     this.source.connect(proc);
     proc.connect(this.audioContext.destination);
     this.processor = proc;
   }
 
-  _onScriptProcessor(event) {
-    const input = event.inputBuffer.getChannelData(0);
-    const sourceRate = this.audioContext.sampleRate;
-    const resampled = resampleMono(input, sourceRate, CHROMAPRINT_SAMPLE_RATE);
-    this._writeToBuffer(resampled);
-  }
-
-  _onWorkletSamples(resampled) {
-    this._writeToBuffer(resampled);
-  }
-
   _writeToBuffer(samples) {
+    if (!this.buffer) return; // not initialized
     const bufLen = this.buffer.length;
     for (let i = 0; i < samples.length; i++) {
       this.buffer[this.bufferWritePos] = samples[i];
@@ -170,9 +180,10 @@ export class AudioCapture {
   }
 }
 
-// Simple linear-interpolation resampler. Acceptable for chromaprint's
-// purposes since it tolerates minor frequency distortion; a higher-quality
-// resampler would marginally improve hash stability but isn't necessary.
+// Kept for any external callers; no longer used internally.
+// Simple linear-interpolation resampler. Acceptable only as a
+// rough utility — for chromaprint pipelines feed native-rate
+// audio to chromaprint instead.
 export function resampleMono(input, sourceRate, targetRate) {
   if (sourceRate === targetRate) {
     return input.slice();

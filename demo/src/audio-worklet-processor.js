@@ -1,26 +1,22 @@
 // audio-worklet-processor.js
-// AudioWorklet processor that downmixes to mono, resamples to the target
-// sample rate (typically chromaprint's 11025 Hz), and posts batches of
-// samples back to the main thread.
+// AudioWorklet processor that downmixes to mono and posts batches
+// of native-rate Float32 samples back to the main thread.
 //
-// Loaded by audio-capture.js via audioContext.audioWorklet.addModule().
+// We deliberately do NOT resample here. Chromaprint resamples
+// internally — and properly band-limits when it does — so feeding
+// it native-rate audio yields hashes that match the fpcalc-
+// generated reference AFS files. The previous linear-interpolation
+// resampler in this file produced aliased audio whose hashes were
+// uncorrelated with fpcalc's output (matcher reported "many
+// possible positions" the same way it does on unrelated audio).
 
 class AFSCaptureProcessor extends AudioWorkletProcessor {
-  constructor(options) {
+  constructor() {
     super();
-    const opts = (options && options.processorOptions) || {};
-    this.sourceRate = opts.sourceSampleRate || sampleRate;
-    this.targetRate = opts.targetSampleRate || 11025;
-    this.ratio = this.sourceRate / this.targetRate;
-    // Fractional position into the source stream, used to resample
-    // continuously across process() calls.
-    this.srcPos = 0;
-    // Last source sample of the previous block, for interpolation
-    // across block boundaries.
-    this.lastSample = 0;
-    // Buffer batched output samples and flush every ~50ms to keep
-    // postMessage frequency reasonable.
-    this.flushIntervalSamples = Math.floor(this.targetRate * 0.05);
+    // Batch ~50 ms of audio per postMessage to keep IPC traffic
+    // reasonable. `sampleRate` is a global provided to all
+    // AudioWorkletProcessors and equals the AudioContext's rate.
+    this.flushIntervalSamples = Math.floor(sampleRate * 0.05);
     this.outputBuffer = new Float32Array(this.flushIntervalSamples * 4);
     this.outputPos = 0;
   }
@@ -28,44 +24,28 @@ class AFSCaptureProcessor extends AudioWorkletProcessor {
   process(inputs) {
     const input = inputs[0];
     if (!input || input.length === 0) return true;
-    // Downmix to mono in-place (allocate once).
     const channelCount = input.length;
     const blockLength = input[0].length;
-    const mono = new Float32Array(blockLength);
+
+    // Downmix to mono and append to the output batch in one pass.
     if (channelCount === 1) {
-      mono.set(input[0]);
+      const src = input[0];
+      for (let i = 0; i < blockLength; i++) {
+        if (this.outputPos === this.outputBuffer.length) this._flush();
+        this.outputBuffer[this.outputPos++] = src[i];
+      }
     } else {
       for (let i = 0; i < blockLength; i++) {
         let sum = 0;
         for (let c = 0; c < channelCount; c++) {
           sum += input[c][i];
         }
-        mono[i] = sum / channelCount;
+        if (this.outputPos === this.outputBuffer.length) this._flush();
+        this.outputBuffer[this.outputPos++] = sum / channelCount;
       }
     }
 
-    // Resample to target rate using linear interpolation across the
-    // boundary between blocks.
-    while (this.srcPos < blockLength) {
-      const idx = Math.floor(this.srcPos);
-      const frac = this.srcPos - idx;
-      const a = idx === 0 ? this.lastSample : mono[idx - 1];
-      const b = mono[idx] ?? a;
-      const sample = a + (b - a) * frac;
-      this.outputBuffer[this.outputPos++] = sample;
-      this.srcPos += this.ratio;
-      if (this.outputPos >= this.outputBuffer.length) {
-        this._flush();
-      }
-    }
-    this.srcPos -= blockLength;
-    this.lastSample = mono[blockLength - 1];
-
-    // Flush every ~50ms.
-    if (this.outputPos >= this.flushIntervalSamples) {
-      this._flush();
-    }
-
+    if (this.outputPos >= this.flushIntervalSamples) this._flush();
     return true;
   }
 
@@ -73,7 +53,6 @@ class AFSCaptureProcessor extends AudioWorkletProcessor {
     if (this.outputPos === 0) return;
     const out = this.outputBuffer.slice(0, this.outputPos);
     this.port.postMessage(out, [out.buffer]);
-    // Allocate a fresh buffer (the previous one was transferred).
     this.outputBuffer = new Float32Array(this.flushIntervalSamples * 4);
     this.outputPos = 0;
   }
