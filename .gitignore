@@ -19,7 +19,11 @@ package-lock.json
 # vendor/ is built from node_modules via the deploy workflow
 demo/vendor/
 
-# Local content for testing (real media files; .afs and .srt are checked in)
+# Demo content. Source media (full-length downloads and intermediate
+# pre-trim files) is excluded — the deploy workflow doesn't need
+# them; trim recipes in demo/content/README.md produce the demo
+# clips from these. The trimmed final clips ARE checked in so the
+# GitHub Pages deploy artifact has everything the live demo loads.
 demo/content/*.mp4
 demo/content/*.webm
 demo/content/*.mp3
@@ -27,6 +31,10 @@ demo/content/*.m4a
 demo/content/*.wav
 demo/content/*.ogv
 demo/content/*.ogg
+!demo/content/dialogue-clip.mp4
+!demo/content/dialogue-clip-edited.mp4
+!demo/content/cannon-shot.mp4
+!demo/content/overture-finale.mp3
 
 # Local tool version pins (asdf/mise) — environment-specific
 .tool-versions
