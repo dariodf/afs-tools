@@ -46,6 +46,40 @@ export function chromaprintCueMs(i) {
   return Math.round((i * CHROMAPRINT_STEP_NUMERATOR) / CHROMAPRINT_STEP_DENOMINATOR);
 }
 
+// Estimate the latency between an event in the source audio and the
+// matcher's first report of that event's position. Used as the
+// default `predictionOffsetMs` for the schedule-ahead haptics
+// manager (see haptics-events.js). All times in milliseconds.
+//
+// Components:
+//   - baseLatencyMs: AudioContext.baseLatency, the audio graph's
+//     processing delay (typically 5-25 ms in Chrome, more in Safari).
+//     Fallback 10 ms if the API isn't exposed.
+//   - tickHalfMs: average lag from the JS tick interval. We poll
+//     chromaprint output every matchIntervalMs ms, so a hash is on
+//     average half-an-interval stale when we read it.
+//   - hopHalfMs: average within-hop lag. Chromaprint emits one hash
+//     per ~124 ms hop; on average half a hop has elapsed since the
+//     audio sample at the hash's nominal timestamp was captured.
+//   - micExtraMs: mic mode pays an additional input-buffer cost
+//     beyond what baseLatency captures (which is output-side). No
+//     standard API exposes the input buffer length; ~30 ms is
+//     reasonable for getUserMedia on modern devices.
+//
+// Direct mode typically lands ~180-220 ms; mic mode ~210-260 ms.
+// The schedule-ahead haptics manager subtracts this from each fire's
+// projected wall-clock target so the visible/tactile event lines up
+// with the actual audio.
+export function estimateMatchLatencyMs(audioContext, { matchIntervalMs = 250, isMic = false } = {}) {
+  const baseLatencyMs = audioContext?.baseLatency != null
+    ? audioContext.baseLatency * 1000
+    : 10;
+  const tickHalfMs = matchIntervalMs / 2;
+  const hopHalfMs = CHROMAPRINT_INTERVAL_MS_APPROX / 2;
+  const micExtraMs = isMic ? 30 : 0;
+  return Math.round(baseLatencyMs + tickHalfMs + hopHalfMs + micExtraMs);
+}
+
 // Load the chromaprint WASM module. Lazy-loaded on first use so the
 // rest of the demo can render before WASM is ready. Idempotent and
 // concurrent-safe.

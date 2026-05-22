@@ -27,7 +27,7 @@ echo "fetch-content.sh: downloading source media..."
 if [[ ! -f tearsofsteel-full.mp4 ]]; then
   echo "  fetching Tears of Steel (720p, ~120MB)..."
   curl -L -o tearsofsteel-full.mp4 \
-    'https://download.blender.org/durian/movies/tears_of_steel_720p.mov' \
+    'https://download.blender.org/demo/movies/ToS/tears_of_steel_720p.mov' \
     || echo "  WARNING: Tears of Steel download failed; check the URL"
 else
   echo "  tearsofsteel-full.mp4 already exists"

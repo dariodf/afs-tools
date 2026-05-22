@@ -18,7 +18,11 @@ import {
   shiftCues,
 } from "../demo/src/srt-parser.js";
 import { writeAFS } from "../demo/src/afs-writer.js";
-import { mockFingerprint, chromaprintCueMs } from "../demo/src/chromaprint.js";
+import {
+  mockFingerprint,
+  chromaprintCueMs,
+  estimateMatchLatencyMs,
+} from "../demo/src/chromaprint.js";
 import { SubtitleRenderer } from "../demo/src/subtitle-renderer.js";
 import { HapticsEventManager } from "../demo/src/haptics-events.js";
 
@@ -255,6 +259,44 @@ algorithm = "chromaprint"
 // -----------------------------------------------------------------------
 // Chromaprint cue function
 // -----------------------------------------------------------------------
+
+test("estimateMatchLatencyMs: direct mode uses baseLatency + tick + hop", () => {
+  // baseLatency 15 ms * 1000 = 15
+  // matchIntervalMs / 2 = 125
+  // hop / 2 ≈ 62
+  // mic extra: 0
+  // Total ≈ 202
+  const result = estimateMatchLatencyMs(
+    { baseLatency: 0.015 },
+    { matchIntervalMs: 250, isMic: false },
+  );
+  assertEqual(result, 202);
+});
+
+test("estimateMatchLatencyMs: mic mode adds capture overhead", () => {
+  // baseLatency 10 + tick 125 + hop 62 + mic 30 = 227
+  const result = estimateMatchLatencyMs(
+    { baseLatency: 0.010 },
+    { matchIntervalMs: 250, isMic: true },
+  );
+  assertEqual(result, 227);
+});
+
+test("estimateMatchLatencyMs: falls back when baseLatency missing", () => {
+  // Fallback baseLatency = 10
+  const result = estimateMatchLatencyMs(null, { matchIntervalMs: 250 });
+  assertEqual(result, 197);
+});
+
+test("estimateMatchLatencyMs: tighter tick lowers the estimate", () => {
+  // matchIntervalMs / 2 = 62 instead of 125
+  const result = estimateMatchLatencyMs(
+    { baseLatency: 0.010 },
+    { matchIntervalMs: 124, isMic: false },
+  );
+  // 10 + 62 + 62 + 0 = 134
+  assertEqual(result, 134);
+});
 
 test("chromaprintCueMs: bounded drift over long sequences", () => {
   // The exact step is 4096000 / 33075 ≈ 123.83 ms. Naive stepwise
@@ -618,59 +660,162 @@ test("SubtitleRenderer: toggle between modes", () => {
 });
 
 // -----------------------------------------------------------------------
-// HapticsEventManager tests
+// HapticsEventManager tests (schedule-ahead architecture)
 // -----------------------------------------------------------------------
+//
+// The manager schedules fires via an injected scheduler. Tests pass a
+// fake scheduler that records what would have been scheduled and lets
+// the test invoke callbacks deterministically — no real wall-clock
+// waits.
 
-test("HapticsEventManager: fires when position passes event", () => {
-  const events = [
-    { time_ms: 1000, type: "cannon" },
-    { time_ms: 2000, type: "cannon" },
-  ];
+function makeFakeScheduler() {
+  const records = [];
+  return {
+    records,
+    schedule: (cb, ms) => {
+      const rec = { cb, ms, cancelled: false };
+      records.push(rec);
+      return rec;
+    },
+    cancel: (rec) => {
+      rec.cancelled = true;
+    },
+    // Helper: invoke a recorded callback (simulates the timeout firing)
+    fire: (i) => {
+      const rec = records[i];
+      if (rec && !rec.cancelled) rec.cb();
+    },
+  };
+}
+
+function makeHaptics(events, options = {}) {
   const fired = [];
-  const h = new HapticsEventManager(events, (e) => fired.push(e.time_ms));
-  h.step(1000, 0);
+  const fakeSched = makeFakeScheduler();
+  const h = new HapticsEventManager(events, (e) => fired.push(e.time_ms), {
+    predictionOffsetMs: 100,
+    schedule: fakeSched.schedule,
+    cancel: fakeSched.cancel,
+    ...options,
+  });
+  return { h, fired, sched: fakeSched };
+}
+
+test("HapticsEventManager: schedules upcoming events with offset", () => {
+  const events = [{ time_ms: 1000, type: "cannon" }];
+  const { h, sched } = makeHaptics(events);
+  // Position 0 at wall time 0; event 1000 ms ahead in source.
+  // Expected wall delay: (1000 - 0) / 1.0 - 100 (offset) = 900 ms.
+  h.step(0, 0);
+  assertEqual(sched.records.length, 1);
+  assertEqual(sched.records[0].ms, 900);
+});
+
+test("HapticsEventManager: fires when scheduled timeout invokes", () => {
+  const events = [{ time_ms: 1000, type: "cannon" }];
+  const { h, fired, sched } = makeHaptics(events);
+  h.step(0, 0);
+  sched.fire(0);
   assertEqual(fired.length, 1);
   assertEqual(fired[0], 1000);
-  h.step(2000, 100);
-  assertEqual(fired.length, 2);
 });
 
-test("HapticsEventManager: doesn't double-fire within cooldown", () => {
+test("HapticsEventManager: refire after offset-clamped target uses delay 0", () => {
   const events = [{ time_ms: 1000, type: "cannon" }];
-  const fired = [];
-  const h = new HapticsEventManager(events, () => fired.push(1));
-  h.step(1000, 0);
-  h.step(1100, 50);
-  h.step(900, 200);
-  assertEqual(fired.length, 1); // only the first
+  const { h, sched } = makeHaptics(events);
+  // Position is 950 — only 50 ms away. With offset 100, naive delay
+  // = -50, clamped to 0 so the schedule fires immediately.
+  h.step(950, 0);
+  assertEqual(sched.records.length, 1);
+  assertEqual(sched.records[0].ms, 0);
 });
 
-test("HapticsEventManager: fires within ±200ms window", () => {
+test("HapticsEventManager: marks past events missed (no schedule)", () => {
   const events = [{ time_ms: 1000, type: "cannon" }];
-  const fired = [];
-  const h = new HapticsEventManager(events, () => fired.push(1));
-  h.step(800, 0); // 200ms before, edge case
+  const { h, sched } = makeHaptics(events);
+  // Position 1300 — already 300 ms past the event, beyond the
+  // offset compensation window (100 ms). Should NOT schedule.
+  h.step(1300, 0);
+  assertEqual(sched.records.length, 0);
+});
+
+test("HapticsEventManager: doesn't schedule beyond horizon", () => {
+  const events = [{ time_ms: 30000, type: "cannon" }];
+  const { h, sched } = makeHaptics(events, { scheduleHorizonMs: 5000 });
+  // Event 30 s ahead, horizon 5 s. Don't schedule yet.
+  h.step(0, 0);
+  assertEqual(sched.records.length, 0);
+  // Once we're close enough, it schedules.
+  h.step(26000, 0);
+  assertEqual(sched.records.length, 1);
+});
+
+test("HapticsEventManager: re-step doesn't reschedule on small drift", () => {
+  const events = [{ time_ms: 1000, type: "cannon" }];
+  const { h, sched } = makeHaptics(events, { rescheduleThresholdMs: 30 });
+  h.step(0, 0); // schedules at 900 ms
+  // Position barely changed; projected target drift = 10 ms (< 30 threshold)
+  h.step(10, 10);
+  assertEqual(sched.records.length, 1, "no extra schedule");
+  assertEqual(sched.records[0].cancelled, false);
+});
+
+test("HapticsEventManager: re-step reschedules on large drift", () => {
+  const events = [{ time_ms: 1000, type: "cannon" }];
+  const { h, sched } = makeHaptics(events, { rescheduleThresholdMs: 30 });
+  h.step(0, 0); // schedules at 900 ms
+  // Position jumped by 100 ms in source while wall time only moved
+  // 10 ms — implies the matcher just re-acquired at a different
+  // position. Target wall-clock drifts by ~90 ms, exceeds threshold.
+  h.step(100, 10);
+  assertEqual(sched.records.length, 2, "rescheduled");
+  assertEqual(sched.records[0].cancelled, true);
+  assertEqual(sched.records[1].cancelled, false);
+});
+
+test("HapticsEventManager: setOffset reschedules pending fires", () => {
+  const events = [{ time_ms: 1000, type: "cannon" }];
+  const { h, sched } = makeHaptics(events);
+  h.step(0, 0); // schedules at 900 ms (offset 100)
+  h.setOffset(200);
+  // New schedule should be at 800 ms (offset doubled).
+  assertEqual(sched.records.length, 2);
+  assertEqual(sched.records[0].cancelled, true);
+  assertEqual(sched.records[1].ms, 800);
+});
+
+test("HapticsEventManager: reset clears pending and fired state", () => {
+  const events = [{ time_ms: 1000, type: "cannon" }];
+  const { h, fired, sched } = makeHaptics(events);
+  h.step(0, 0);
+  h.reset();
+  assertEqual(sched.records[0].cancelled, true);
+  // After reset, the manager treats events as never-scheduled again.
+  h.step(0, 0);
+  assertEqual(sched.records.length, 2);
+  // Firing it produces one fire (state is clean).
+  sched.fire(1);
   assertEqual(fired.length, 1);
 });
 
-test("HapticsEventManager: doesn't fire outside window", () => {
+test("HapticsEventManager: doesn't re-schedule an event after it fires", () => {
+  // Once a scheduled timeout fires, the event is marked as fired
+  // and subsequent step() calls must not schedule it again — even
+  // if the position is still within range.
   const events = [{ time_ms: 1000, type: "cannon" }];
-  const fired = [];
-  const h = new HapticsEventManager(events, () => fired.push(1));
-  h.step(500, 0); // 500ms early
-  h.step(1500, 100); // 500ms late
-  assertEqual(fired.length, 0);
+  const { h, fired, sched } = makeHaptics(events);
+  h.step(0, 0);
+  sched.fire(0);
+  assertEqual(fired.length, 1);
+  // A later step before/around the same event time must not add a
+  // new schedule for it.
+  h.step(500, 500);
+  assertEqual(sched.records.length, 1, "no new schedule after fire");
+  // Even a step right at the event time stays a no-op.
+  h.step(1000, 1000);
+  assertEqual(sched.records.length, 1);
+  assertEqual(fired.length, 1);
 });
 
-test("HapticsEventManager: reset clears fired state", () => {
-  const events = [{ time_ms: 1000, type: "cannon" }];
-  const fired = [];
-  const h = new HapticsEventManager(events, () => fired.push(1));
-  h.step(1000, 0);
-  h.reset();
-  h.step(1000, 100); // would normally be in cooldown
-  assertEqual(fired.length, 2);
-});
 
 // -----------------------------------------------------------------------
 // Summary

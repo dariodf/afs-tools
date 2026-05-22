@@ -92,12 +92,19 @@ console.log(`  rendered subtitle at ${expectedTimeMs}ms: "${stubEl.textContent}"
 // The match is at block 220 ≈ 27.24s; first cue runs 27-32s.
 assert(stubEl.textContent === "Match around 30 seconds", "rendered correct subtitle");
 
-// Verify haptics fire on matched position.
+// Verify haptics schedule on matched position. The schedule-ahead
+// manager fires via setTimeout; we inject a sync scheduler that
+// invokes the callback immediately so this end-to-end test stays
+// synchronous.
 const events = [{ time_ms: result.time_ms, type: "cannon" }];
 let fired = 0;
-const haptics = new HapticsEventManager(events, () => fired++);
+const haptics = new HapticsEventManager(events, () => fired++, {
+  predictionOffsetMs: 0,
+  schedule: (cb) => { cb(); return null; },
+  cancel: () => {},
+});
 haptics.step(result.time_ms, Date.now());
-assert(fired === 1, "haptic event fired");
+assert(fired === 1, "haptic event scheduled and fired");
 console.log(`  haptics fired: ${fired}`);
 
 console.log("end-to-end demo pipeline OK.");

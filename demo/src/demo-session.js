@@ -19,8 +19,14 @@ import { AudioCapture } from "./audio-capture.js";
 import { mockFingerprint } from "./chromaprint.js";
 
 const DEFAULT_OPTIONS = {
-  // Match every N ms. 250ms is a good balance of responsiveness and
-  // CPU cost.
+  // Match every N ms. 250 ms is the default — slower than
+  // chromaprint's 124 ms hop, so we sometimes lag by ~one extra hop
+  // in steady state. That's fine for subtitles (text alignment is
+  // forgiving below ~250 ms misalignment). The schedule-ahead
+  // architecture for haptics removes most of this lag anyway by
+  // projecting the position forward and firing on wall-clock time
+  // rather than on each tick. Tunable for users who want lower
+  // latency at higher CPU cost.
   matchIntervalMs: 250,
   // How much of the captured buffer to fingerprint each tick. The
   // matcher needs ~3s of audio for a confident cold-start match.

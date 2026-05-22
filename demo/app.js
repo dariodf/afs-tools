@@ -9,7 +9,7 @@ import { DemoSession } from "./src/demo-session.js";
 import { SubtitleRenderer } from "./src/subtitle-renderer.js";
 import { HapticsEventManager } from "./src/haptics-events.js";
 import { writeAFS } from "./src/afs-writer.js";
-import { mockFingerprint } from "./src/chromaprint.js";
+import { mockFingerprint, estimateMatchLatencyMs } from "./src/chromaprint.js";
 import { qrCode } from "./src/vendor/qr-code.js";
 import { DebugPanel } from "./src/debug-panel.js";
 
@@ -382,13 +382,55 @@ async function startHapticsDemo() {
     .then((r) => r.json())
     .then((d) => d.events || []);
 
+  // Latency compensation for the schedule-ahead haptics manager.
+  // The accurate value depends on AudioContext.baseLatency, which is
+  // only readable after a session has started (the context doesn't
+  // exist before then). So we start with a coarse default at
+  // construction and refine via setOffset once the session is up.
+  // A URL param `?offset=N` overrides both, for live tuning.
+  const offsetOverride = new URLSearchParams(window.location.search).get(
+    "offset",
+  );
+  const initialOffsetMs = offsetOverride != null
+    ? Number(offsetOverride)
+    : isMic
+      ? 220
+      : 190;
+
   const haptics = new HapticsEventManager(events, (event) => {
     fireCannon(cannonVideo, flashEl, isMic);
-  });
+  }, { predictionOffsetMs: initialOffsetMs });
+
+  // Adaptive-offset state. In direct mode, mediaElement.currentTime
+  // is the ground truth for where the audio actually is, so we can
+  // measure the matcher's lag directly each tick and EMA-smooth it.
+  // In mic mode no such reference exists, so we trust the Step 2
+  // computed default. If the user supplied ?offset=N we honor that
+  // and skip adaptation entirely.
+  let computedDefaultMs = initialOffsetMs;
+  let smoothedOffsetMs = initialOffsetMs;
+  const EMA_ALPHA = 0.1;
+  const ADAPT_CAP_MS = 100; // cap drift from computed default
 
   const session = new DemoSession({
     onPosition: (timeMs) => {
       haptics.step(timeMs, performance.now());
+
+      // Step 3: refine offset from observed lag in direct mode.
+      if (
+        offsetOverride == null &&
+        !isMic &&
+        audioEl &&
+        audioEl.currentTime > 0 &&
+        !audioEl.paused
+      ) {
+        const observed = audioEl.currentTime * 1000 - timeMs;
+        smoothedOffsetMs = EMA_ALPHA * observed + (1 - EMA_ALPHA) * smoothedOffsetMs;
+        const lo = computedDefaultMs - ADAPT_CAP_MS;
+        const hi = computedDefaultMs + ADAPT_CAP_MS;
+        const capped = Math.round(Math.max(lo, Math.min(hi, smoothedOffsetMs)));
+        haptics.setOffset(capped);
+      }
     },
   });
   state.session = session;
@@ -396,6 +438,19 @@ async function startHapticsDemo() {
 
   await session.loadAFS("content/overture-finale.afs");
   await startSessionFor(session, audioEl);
+
+  // Step 2: now that the AudioContext exists, refine the default
+  // offset using AudioContext.baseLatency + tick + hop averages.
+  // This becomes the baseline that Step 3's adaptive offset can
+  // drift ±ADAPT_CAP_MS away from.
+  if (offsetOverride == null && session.capture?.audioContext) {
+    computedDefaultMs = estimateMatchLatencyMs(session.capture.audioContext, {
+      matchIntervalMs: session.options.matchIntervalMs,
+      isMic,
+    });
+    smoothedOffsetMs = computedDefaultMs;
+    haptics.setOffset(computedDefaultMs);
+  }
 
   // In mic mode, auto-enter fullscreen so the cannon visual takes
   // the full phone screen. The user's click on "Start" satisfies
@@ -445,8 +500,7 @@ async function startCustomDemo() {
   // both playing and listening on the same device with their own
   // files). Force direct mode and update the UI to reflect it.
   if (state.mode !== "direct") {
-    state.mode = "direct";
-    state.els.modeSelect.value = "direct";
+    setActiveMode("direct");
     state.els.qrArea.hidden = true;
   }
 
@@ -666,8 +720,7 @@ function stopRafLoop() {
 // -----------------------------------------------------------------------
 
 async function startSelectedDemo() {
-  state.demoId = state.els.demoSelect.value;
-  state.mode = state.els.modeSelect.value;
+  if (!state.demoId) return;
   stopCurrentDemo();
 
   if (state.mode === "mic") {
@@ -708,11 +761,29 @@ function stopCurrentDemo() {
 // Init
 // -----------------------------------------------------------------------
 
+// Reflect the active demo/mode in the segmented-control DOM. The
+// canonical state lives on state.demoId / state.mode; these helpers
+// just sync the visual `.active` class on the buttons.
+function setActiveDemo(demoId) {
+  state.demoId = demoId;
+  for (const btn of state.els.demoBtns) {
+    btn.classList.toggle("active", btn.dataset.demo === demoId);
+    btn.setAttribute("aria-selected", btn.dataset.demo === demoId ? "true" : "false");
+  }
+}
+
+function setActiveMode(mode) {
+  state.mode = mode;
+  for (const btn of state.els.modeBtns) {
+    btn.classList.toggle("active", btn.dataset.mode === mode);
+    btn.setAttribute("aria-selected", btn.dataset.mode === mode ? "true" : "false");
+  }
+}
+
 function init() {
   state.els = {
-    demoSelect: document.getElementById("demo-select"),
-    modeSelect: document.getElementById("mode-select"),
-    startBtn: document.getElementById("start-btn"),
+    demoBtns: document.querySelectorAll(".seg-btn[data-demo]"),
+    modeBtns: document.querySelectorAll(".seg-btn[data-mode]"),
     fullscreenBtn: document.getElementById("fullscreen-btn"),
     statusText: document.getElementById("status-text"),
     playerArea: document.getElementById("player-area"),
@@ -721,18 +792,36 @@ function init() {
     customFiles: document.getElementById("custom-files"),
   };
 
-  state.els.startBtn.addEventListener("click", startSelectedDemo);
   state.els.fullscreenBtn.addEventListener("click", () => {
     const area = state.els.playerArea;
     if (area.requestFullscreen) area.requestFullscreen();
   });
 
+  // Click on a demo tab: activate it and start it. The click itself
+  // is the user gesture browsers require for audio autoplay /
+  // getUserMedia, so no separate Start button is needed.
+  for (const btn of state.els.demoBtns) {
+    btn.addEventListener("click", () => {
+      setActiveDemo(btn.dataset.demo);
+      startSelectedDemo();
+    });
+  }
+
+  // Click on a mode tab: change mode, and if a demo is already
+  // selected, restart it under the new mode.
+  for (const btn of state.els.modeBtns) {
+    btn.addEventListener("click", () => {
+      setActiveMode(btn.dataset.mode);
+      if (state.demoId) startSelectedDemo();
+    });
+  }
+
   // Read URL parameters (used by QR codes).
   const params = new URLSearchParams(window.location.search);
-  if (params.has("demo")) state.els.demoSelect.value = params.get("demo");
-  if (params.has("mode")) state.els.modeSelect.value = params.get("mode");
-  // If both were specified, auto-start (this is the QR code path).
-  if (params.has("demo") && params.has("mode")) {
+  const mode = params.has("mode") ? params.get("mode") : "direct";
+  setActiveMode(mode);
+  if (params.has("demo")) {
+    setActiveDemo(params.get("demo"));
     setTimeout(() => startSelectedDemo(), 100);
   }
 

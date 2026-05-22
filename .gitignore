@@ -25,6 +25,10 @@ demo/content/*.webm
 demo/content/*.mp3
 demo/content/*.m4a
 demo/content/*.wav
+demo/content/*.ogv
+
+# Local tool version pins (asdf/mise) — environment-specific
+.tool-versions
 
 # Logs
 *.log

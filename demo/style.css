@@ -1,131 +1,553 @@
 /* style.css
-   AFS demo styles. Mobile-first, dark mode aware. */
+   AFS demo. An engineering specimen — warm paper background,
+   editorial serif for headlines, monospace for the technical bits.
+   Mobile-first, light/dark aware. */
 
-* { box-sizing: border-box; }
+/* -----------------------------------------------------------------------
+   Tokens
+   ----------------------------------------------------------------------- */
 
 :root {
-  --bg: #ffffff;
-  --fg: #1a1a1a;
-  --fg-dim: #666;
-  --accent: #0066cc;
-  --accent-fg: #ffffff;
-  --border: #e0e0e0;
-  --status-ok: #2a8;
-  --status-warn: #c80;
-  --status-error: #c44;
-  --subtitle-bg: rgba(0, 0, 0, 0.75);
-  --subtitle-fg: #ffffff;
+  /* Typography */
+  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-body: "Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Spacing scale (eight-step rhythm, in rem) */
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --s-7: 3rem;
+  --s-8: 4rem;
+  --s-9: 6rem;
+
+  /* Colors — light */
+  --bg: #f5f1e8;
+  --bg-elevated: #fbf8ef;
+  --fg: #14140e;
+  --fg-dim: #6b665a;
+  --fg-muted: #9a9587;
+  --rule: #d6cfbc;
+  --rule-soft: #e6e1d2;
+  --accent: #0d3b8c;
+  --accent-hover: #1247a8;
+  --accent-fg: #fbf8ef;
+  --accent-soft: rgba(13, 59, 140, 0.08);
+  --status-ok: #1e7a4a;
+  --status-warn: #b25e08;
+  --status-error: #a83232;
+  --subtitle-bg: rgba(20, 20, 14, 0.85);
+  --subtitle-fg: #fbf8ef;
   --cannon-flash: #ff6b35;
+
+  /* Pre-aliases kept for backwards compatibility with app.js */
+  --border: var(--rule);
+  --accent-soft-bg: var(--accent-soft);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1a1a1a;
-    --fg: #eaeaea;
-    --fg-dim: #999;
-    --accent: #4a9eff;
-    --accent-fg: #000000;
-    --border: #333;
+    --bg: #14130e;
+    --bg-elevated: #1c1a14;
+    --fg: #ebe5d3;
+    --fg-dim: #95907f;
+    --fg-muted: #5d594d;
+    --rule: #2c2a22;
+    --rule-soft: #1e1c16;
+    --accent: #79a8ff;
+    --accent-hover: #9bbeff;
+    --accent-fg: #14130e;
+    --accent-soft: rgba(121, 168, 255, 0.12);
+    --status-ok: #4ac483;
+    --status-warn: #e09446;
+    --status-error: #d36868;
+    --subtitle-bg: rgba(0, 0, 0, 0.85);
   }
 }
 
+/* -----------------------------------------------------------------------
+   Reset + base
+   ----------------------------------------------------------------------- */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { font-size: 16px; }
+
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-body);
+  font-weight: 400;
+  font-size: 1rem;
+  line-height: 1.55;
   background: var(--bg);
   color: var(--fg);
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 1rem;
-  line-height: 1.5;
-}
-
-header {
-  text-align: center;
-  margin-bottom: 1.5rem;
-}
-
-header h1 {
-  font-size: 2.5rem;
   margin: 0;
-  letter-spacing: 0.2em;
-  font-weight: 200;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-.tagline {
-  color: var(--fg-dim);
-  margin: 0.25rem 0;
+body::before {
+  /* Hairline left margin on wide viewports, doubling as a print-style
+     "binding edge". Adds editorial structure without an explicit grid. */
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--rule);
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
 }
 
-.links {
-  font-size: 0.875rem;
-  color: var(--fg-dim);
-}
-
-.links a {
-  color: inherit;
-  text-decoration: none;
-  border-bottom: 1px dotted currentColor;
+@media (min-width: 980px) {
+  body::before { opacity: 0.6; }
 }
 
 main {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0 var(--s-4) var(--s-8);
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: var(--s-5);
 }
 
-.controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-  padding: 1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
+::selection {
+  background: var(--accent);
+  color: var(--accent-fg);
 }
 
-.controls label {
+a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 150ms ease, color 150ms ease;
+}
+
+a:hover {
+  border-bottom-color: currentColor;
+}
+
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 1px;
+}
+
+/* -----------------------------------------------------------------------
+   Header — the specimen sheet's title block
+   ----------------------------------------------------------------------- */
+
+header {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: var(--s-7) var(--s-4) var(--s-6);
+  border-bottom: 1px solid var(--rule);
+}
+
+.masthead {
+  display: grid;
+  gap: var(--s-3);
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(3rem, 9vw, 5.5rem);
+  line-height: 0.9;
+  letter-spacing: -0.02em;
+  font-variation-settings: "opsz" 144, "SOFT" 30;
+}
+
+.wordmark-sigil {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 0.55em;
+  line-height: 1;
+  color: var(--accent);
+  transform: translateY(-0.15em);
+  /* The ∿ is the project's literal sigil; nudge it visually so it
+     reads as a meaningful glyph next to the wordmark, not a stray
+     punctuation mark. */
+}
+
+.wordmark-letters {
+  font-feature-settings: "ss01" on;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
   font-weight: 500;
-  margin-right: 0.25rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  margin: 0;
+  margin-top: calc(var(--s-2) * -1);
 }
 
-.controls select,
-.controls button {
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 0.25rem;
-  font-size: 1rem;
-  background: var(--bg);
+.tagline {
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: clamp(1.5rem, 4.5vw, 2.25rem);
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  color: var(--fg);
+  margin: var(--s-2) 0 0;
+  max-width: 22ch;
+  font-variation-settings: "opsz" 60, "SOFT" 50;
+}
+
+.tagline em {
+  font-style: italic;
+  font-variation-settings: "opsz" 60, "SOFT" 100;
+  color: var(--accent);
+}
+
+.lede {
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  color: var(--fg-dim);
+  max-width: 56ch;
+  margin: var(--s-3) 0 0;
+}
+
+.lede em {
+  font-style: italic;
   color: var(--fg);
 }
 
-.controls button {
+.masthead-links {
+  margin-top: var(--s-4);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+.masthead-links a {
+  color: inherit;
+  margin: 0 0.15em;
+  border-bottom: 1px dotted currentColor;
+}
+
+.masthead-links a:hover {
+  color: var(--accent);
+  border-bottom-style: solid;
+}
+
+.masthead-links span {
+  opacity: 0.5;
+  margin: 0 0.2em;
+}
+
+/* -----------------------------------------------------------------------
+   Controls — segmented tabs
+   ----------------------------------------------------------------------- */
+
+.controls {
+  display: grid;
+  gap: var(--s-4);
+  padding: var(--s-4) var(--s-5);
+  background: var(--bg-elevated);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+}
+
+@media (min-width: 720px) {
+  .controls {
+    grid-template-columns: 1fr auto;
+    align-items: end;
+  }
+  .controls > #fullscreen-btn {
+    grid-column: 2;
+  }
+}
+
+.control-group {
+  display: grid;
+  gap: var(--s-2);
+  min-width: 0;
+}
+
+.control-label {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  overflow: hidden;
+  padding: 1px;
+}
+
+.seg-btn {
+  flex: 1 1 auto;
+  padding: var(--s-2) var(--s-4);
+  border: 0;
+  background: var(--bg-elevated);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: center;
+  position: relative;
+  transition: background 160ms ease, color 160ms ease, transform 100ms ease;
+  /* Edge-to-edge: gap on parent provides the dividing lines */
+  border-radius: 2px;
+}
+
+.seg-btn:hover:not(.active) {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.seg-btn.active {
   background: var(--accent);
   color: var(--accent-fg);
-  border-color: var(--accent);
-  cursor: pointer;
+  /* Subtle inset to suggest the button is "depressed" */
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.06);
 }
 
-.controls button:hover { opacity: 0.9; }
-.controls button:disabled { opacity: 0.5; cursor: not-allowed; }
+.seg-btn:active {
+  transform: translateY(1px);
+}
+
+.seg-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  z-index: 2;
+}
+
+/* Mobile: stack the seg-btns vertically when there isn't space */
+@media (max-width: 480px) {
+  .seg-btn {
+    flex: 1 1 calc(50% - 1px);
+    font-size: 0.875rem;
+    padding: var(--s-2) var(--s-3);
+  }
+}
+
+#fullscreen-btn {
+  padding: var(--s-2) var(--s-4);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  align-self: end;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+#fullscreen-btn:hover {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+#fullscreen-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* -----------------------------------------------------------------------
+   Status — a quiet terminal line
+   ----------------------------------------------------------------------- */
 
 .status {
-  font-family: "Menlo", "Monaco", monospace;
-  font-size: 0.875rem;
-  padding: 0.5rem 1rem;
-  background: var(--border);
-  border-radius: 0.25rem;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  padding: var(--s-2) var(--s-4);
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0;
+  color: var(--fg-dim);
 }
 
-.status-label { color: var(--fg-dim); }
+.status-prompt {
+  color: var(--accent);
+  font-weight: 700;
+}
 
-.status-value.ok { color: var(--status-ok); }
-.status-value.warn { color: var(--status-warn); }
+.status-label {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--fg-muted);
+  font-size: 0.6875rem;
+}
+
+.status-divider {
+  color: var(--fg-muted);
+  opacity: 0.6;
+}
+
+.status-value {
+  color: var(--fg);
+  letter-spacing: 0.02em;
+}
+
+.status-value.ok {
+  color: var(--status-ok);
+  position: relative;
+  padding-left: 0.85em;
+}
+
+.status-value.ok::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  background: var(--status-ok);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+.status-value.warn {
+  color: var(--status-warn);
+  position: relative;
+  padding-left: 0.85em;
+}
+
+.status-value.warn::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  background: var(--status-warn);
+  animation: pulse-dot 0.8s ease-in-out infinite;
+}
+
 .status-value.error { color: var(--status-error); }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: translateY(-50%) scale(1); }
+  50% { opacity: 0.55; transform: translateY(-50%) scale(0.85); }
+}
+
+/* -----------------------------------------------------------------------
+   Empty state — table of contents
+   ----------------------------------------------------------------------- */
+
+.empty-state {
+  padding: var(--s-5) var(--s-4);
+  display: grid;
+  gap: var(--s-5);
+}
+
+.empty-state-prompt {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 1.5rem;
+  line-height: 1.2;
+  color: var(--fg-dim);
+  margin: 0;
+  font-variation-settings: "opsz" 60, "SOFT" 80;
+}
+
+.demo-index {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.demo-index-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--s-1);
+  padding: var(--s-4) 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+@media (min-width: 640px) {
+  .demo-index-row {
+    grid-template-columns: 240px 1fr;
+    gap: var(--s-5);
+    align-items: baseline;
+  }
+}
+
+.demo-index-row dt {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.125rem;
+  line-height: 1.3;
+  color: var(--fg);
+  font-variation-settings: "opsz" 30, "SOFT" 40;
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  margin: 0;
+}
+
+.demo-index-num {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+
+.demo-index-row dd {
+  margin: 0;
+  color: var(--fg-dim);
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  max-width: 60ch;
+}
+
+/* -----------------------------------------------------------------------
+   Player area — runtime container for each demo
+   ----------------------------------------------------------------------- */
 
 .player-area {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: var(--s-4);
+  min-height: 0;
 }
 
 .player-area video,
@@ -134,105 +556,242 @@ main {
   max-width: 720px;
   margin: 0 auto;
   background: #000;
+  border-radius: 4px;
 }
+
+/* -----------------------------------------------------------------------
+   Subtitles
+   ----------------------------------------------------------------------- */
 
 .subtitle-track {
   background: var(--subtitle-bg);
   color: var(--subtitle-fg);
-  padding: 0.5rem 1rem;
-  border-radius: 0.25rem;
-  min-height: 2.5rem;
+  padding: var(--s-3) var(--s-4);
+  border-radius: 4px;
+  min-height: 2.75rem;
   text-align: center;
-  font-size: 1.125rem;
+  font-size: 1.0625rem;
+  line-height: 1.4;
+  font-family: var(--font-body);
 }
 
 .subtitle-track-label {
-  font-size: 0.75rem;
-  color: var(--fg-dim);
-  margin-bottom: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  margin-bottom: var(--s-1);
+  text-align: center;
+}
+
+.subtitle-large {
+  min-height: 4rem;
+  font-size: 1.4375rem;
+  padding: var(--s-5) var(--s-4);
   text-align: center;
 }
 
 .track-controls {
   display: flex;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  gap: var(--s-3);
   justify-content: center;
-  font-size: 0.875rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--fg-dim);
 }
 
+/* -----------------------------------------------------------------------
+   Demo explanation card
+   ----------------------------------------------------------------------- */
+
 .demo-explanation {
-  padding: 1rem;
-  background: var(--border);
-  border-radius: 0.5rem;
+  padding: var(--s-4) var(--s-5);
+  background: var(--bg-elevated);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
   font-size: 0.9375rem;
   line-height: 1.6;
+  color: var(--fg-dim);
 }
+
+.demo-explanation strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* -----------------------------------------------------------------------
+   QR area (mic mode handoff)
+   ----------------------------------------------------------------------- */
 
 .qr-area {
   text-align: center;
-  padding: 1.5rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  padding: var(--s-5) var(--s-4);
+  background: var(--bg-elevated);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+}
+
+.qr-area > p:first-child {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  margin: 0 0 var(--s-3);
 }
 
 #qr-code {
   display: inline-block;
-  margin: 1rem 0;
-  background: white;
-  padding: 1rem;
+  margin: var(--s-3) 0;
+  background: #ffffff;
+  padding: var(--s-3);
+  border-radius: 4px;
 }
 
 .qr-help {
   color: var(--fg-dim);
   font-size: 0.875rem;
+  max-width: 48ch;
+  margin: var(--s-3) auto 0;
+  line-height: 1.5;
 }
 
+/* -----------------------------------------------------------------------
+   Custom files form
+   ----------------------------------------------------------------------- */
+
 .custom-files {
-  padding: 1.5rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  padding: var(--s-5);
+  background: var(--bg-elevated);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+}
+
+.custom-files h2 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.5rem;
+  line-height: 1.2;
+  margin: 0 0 var(--s-2);
+  font-variation-settings: "opsz" 30, "SOFT" 40;
+}
+
+.custom-files > p {
+  color: var(--fg-dim);
+  font-size: 0.9375rem;
+  margin: 0 0 var(--s-4);
+  max-width: 60ch;
 }
 
 .custom-files label {
   display: block;
-  margin: 1rem 0;
+  margin: var(--s-4) 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
 }
 
 .custom-files input[type="file"] {
-  margin-top: 0.25rem;
+  display: block;
+  width: 100%;
+  margin-top: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.custom-files input[type="file"]::file-selector-button {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: var(--s-1) var(--s-3);
+  margin-right: var(--s-3);
+  background: var(--accent);
+  color: var(--accent-fg);
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.custom-files input[type="file"]::file-selector-button:hover {
+  background: var(--accent-hover);
 }
 
 .custom-note {
+  margin-top: var(--s-4);
   color: var(--fg-dim);
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--rule-soft);
 }
 
-/* Haptics demo: cannon flash overlay */
+.custom-instructions {
+  background: var(--bg-elevated);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: var(--s-4) var(--s-5);
+}
+
+.custom-instructions p {
+  margin: var(--s-2) 0;
+  color: var(--fg-dim);
+}
+
+.custom-instructions video,
+.custom-instructions audio {
+  width: 100%;
+  margin-top: var(--s-3);
+}
+
+/* -----------------------------------------------------------------------
+   Haptics demo
+   ----------------------------------------------------------------------- */
+
 .cannon-flash {
   position: fixed;
   inset: 0;
   background: var(--cannon-flash);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 100ms ease-out;
+  transition: opacity 90ms ease-out;
   z-index: 100;
+  mix-blend-mode: multiply;
 }
 
 .cannon-flash.firing {
-  opacity: 0.8;
+  opacity: 0.85;
 }
 
 .cannon-video {
   position: fixed;
-  bottom: 1rem;
-  right: 1rem;
+  bottom: var(--s-4);
+  right: var(--s-4);
   width: 30vw;
-  max-width: 200px;
+  max-width: 220px;
   display: none;
   z-index: 99;
-  border-radius: 0.5rem;
+  border-radius: 4px;
   overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .cannon-video.showing {
@@ -246,6 +805,7 @@ main {
   max-width: none;
   height: 100vh;
   border-radius: 0;
+  box-shadow: none;
 }
 
 .cannon-video video {
@@ -254,27 +814,65 @@ main {
   object-fit: cover;
 }
 
-/* Fullscreen styles */
-.player-area:fullscreen {
-  background: #000;
+.haptics-stage {
+  position: relative;
   display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.haptics-stage.fullscreen {
+  min-height: 70vh;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
 }
 
-footer {
-  margin-top: 3rem;
-  text-align: center;
+.haptics-instructions {
   color: var(--fg-dim);
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
 }
 
-/* Video-pair layout for the edited-video demo */
+.mic-listening {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.5rem;
+  color: var(--fg-dim);
+  text-align: center;
+  padding: var(--s-7) var(--s-4);
+  letter-spacing: -0.01em;
+  animation: pulse 1.6s ease-in-out infinite;
+  font-variation-settings: "opsz" 60, "SOFT" 80;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1.0; }
+}
+
+.mic-instructions {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  margin-top: var(--s-3);
+  color: var(--fg-dim);
+  line-height: 1.5;
+}
+
+.mic-instructions code {
+  background: var(--rule);
+  padding: 0.1em 0.4em;
+  border-radius: 3px;
+  font-size: 0.875em;
+  color: var(--fg);
+}
+
+/* -----------------------------------------------------------------------
+   Side-by-side video pair (desync-video demo)
+   ----------------------------------------------------------------------- */
+
 .video-pair {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 1.5rem;
+  gap: var(--s-4);
 }
 
 @media (min-width: 800px) {
@@ -286,107 +884,102 @@ footer {
 .video-column {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--s-2);
 }
 
 .video-label {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
   font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
   text-align: center;
-  font-size: 0.875rem;
-  color: var(--fg-dim);
 }
 
 .video-column video {
   width: 100%;
   background: #000;
+  border-radius: 4px;
 }
 
 .subtitle-row {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  margin-top: 0.5rem;
+  gap: var(--s-1);
+  margin-top: var(--s-2);
 }
 
-/* Haptics demo */
-.haptics-stage {
-  position: relative;
+/* -----------------------------------------------------------------------
+   Fullscreen container styling
+   ----------------------------------------------------------------------- */
+
+.player-area:fullscreen {
+  background: #000;
   display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.haptics-stage.fullscreen {
-  min-height: 70vh;
   align-items: center;
   justify-content: center;
+  padding: var(--s-4);
 }
 
-.haptics-instructions {
+/* -----------------------------------------------------------------------
+   Footer — colophon block
+   ----------------------------------------------------------------------- */
+
+footer {
+  max-width: 880px;
+  margin: var(--s-9) auto 0;
+  padding: var(--s-6) var(--s-4);
+  border-top: 1px solid var(--rule);
   color: var(--fg-dim);
-  font-size: 0.9rem;
+  font-size: 0.8125rem;
+  line-height: 1.6;
 }
 
-.mic-listening {
-  font-size: 1.25rem;
-  color: var(--fg-dim);
-  text-align: center;
-  padding: 2rem 1rem;
-  letter-spacing: 0.05em;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 0.5; }
-  50%      { opacity: 1.0; }
-}
-
-.custom-instructions {
-  background: var(--border);
-  padding: 1rem 1.5rem;
-  border-radius: 0.5rem;
-}
-
-.custom-instructions p {
-  margin: 0.5rem 0;
-}
-
-.custom-instructions video,
-.custom-instructions audio {
-  width: 100%;
-  margin-top: 1rem;
+footer > p:first-child {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  margin: 0 0 var(--s-3);
 }
 
 .attributions {
-  font-size: 0.75rem;
+  margin: 0;
+  font-size: 0.8125rem;
   line-height: 1.6;
-  max-width: 720px;
-  margin: 0.75rem auto;
+  max-width: 64ch;
+  color: var(--fg-dim);
 }
 
 .attributions a {
   color: inherit;
   border-bottom: 1px dotted currentColor;
-  text-decoration: none;
 }
 
-.mic-instructions {
-  font-size: 0.875rem;
-  margin-top: 1rem;
-  color: var(--fg-dim);
+.attributions a:hover {
+  color: var(--accent);
+  border-bottom-style: solid;
 }
 
-.mic-instructions code {
-  background: var(--border);
-  padding: 0.1rem 0.4rem;
-  border-radius: 0.2rem;
-  font-size: 0.8125rem;
-}
+/* -----------------------------------------------------------------------
+   Motion preferences
+   ----------------------------------------------------------------------- */
 
-/* Subtitle styling reused by audio-mode and custom demos */
-.subtitle-large {
-  min-height: 4rem;
-  font-size: 1.5rem;
-  padding: 1.5rem 1rem;
-  text-align: center;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .cannon-flash {
+    /* Keep the flash visible but instant — it's load-bearing in the demo */
+    transition: opacity 0ms ease-out;
+  }
 }

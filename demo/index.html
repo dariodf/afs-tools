@@ -4,54 +4,60 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="description" content="AFS demo. Sync subtitles, haptics, or any device reaction to playing audio without a network connection, using audio fingerprinting.">
+  <meta name="color-scheme" content="light dark">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='28' font-family='monospace'%3E%E2%88%BF%3C/text%3E%3C/svg%3E">
-  <title>AFS — Audio Fingerprint Sync Demo</title>
+  <title>AFS — Audio Fingerprint Sync</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300..900,0..100&family=Hanken+Grotesk:wght@300..800&family=JetBrains+Mono:wght@400;500;700&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header>
-    <h1>AFS</h1>
-    <p class="tagline">Sync anything to audio.</p>
-    <p class="links">
-      <a href="https://github.com/dariodf/afs">spec</a>
-      ·
-      <a href="https://github.com/dariodf/afs-tools">source</a>
-    </p>
+    <div class="masthead">
+      <div class="wordmark">
+        <span class="wordmark-sigil" aria-hidden="true">∿</span>
+        <span class="wordmark-letters">AFS</span>
+      </div>
+      <p class="eyebrow">Audio Fingerprint Sync · v0.1</p>
+      <h1 class="tagline">Sync <em>anything</em> to audio.</h1>
+      <p class="lede">An open file format that pairs audio fingerprints with time cues. Any device with a microphone can know <em>where in this audio it is</em>, in real time, without a network.</p>
+      <nav class="masthead-links" aria-label="Project links">
+        <a href="https://github.com/dariodf/afs">Spec</a>
+        <span aria-hidden="true">/</span>
+        <a href="https://github.com/dariodf/afs-tools">Source</a>
+      </nav>
+    </div>
   </header>
 
   <main>
     <section class="controls">
-      <label for="demo-select">Demo:</label>
-      <select id="demo-select">
-        <option value="desync-srt">Desync demo 1: shifted subtitles</option>
-        <option value="desync-video">Desync demo 2: edited video</option>
-        <option value="haptics">Haptics: 1812 Overture cannons</option>
-        <option value="custom">Use your own files...</option>
-      </select>
+      <div class="control-group">
+        <span class="control-label">Demo</span>
+        <div class="segmented" role="tablist" aria-label="Demo">
+          <button class="seg-btn" role="tab" data-demo="desync-srt">Desync subtitles</button>
+          <button class="seg-btn" role="tab" data-demo="desync-video">Desync video</button>
+          <button class="seg-btn" role="tab" data-demo="haptics">Cannons</button>
+          <button class="seg-btn" role="tab" data-demo="custom">Your own files</button>
+        </div>
+      </div>
 
-      <label for="mode-select">Mode:</label>
-      <select id="mode-select">
-        <option value="direct">Direct (play here)</option>
-        <option value="mic">Microphone (listen)</option>
-      </select>
+      <div class="control-group">
+        <span class="control-label">Mode</span>
+        <div class="segmented" role="tablist" aria-label="Mode">
+          <button class="seg-btn" role="tab" data-mode="direct">Play here</button>
+          <button class="seg-btn" role="tab" data-mode="mic">Use microphone</button>
+        </div>
+      </div>
 
-      <button id="start-btn">Start</button>
       <button id="fullscreen-btn" hidden>Fullscreen</button>
     </section>
 
-    <section class="status" id="status">
-      <span class="status-label">Status:</span>
+    <section class="status" id="status" aria-live="polite">
+      <span class="status-prompt" aria-hidden="true">›</span>
+      <span class="status-label">status</span>
+      <span class="status-divider" aria-hidden="true">/</span>
       <span class="status-value" id="status-text">idle</span>
-    </section>
-
-    <section class="player-area" id="player-area">
-      <!-- The active demo populates this region. -->
-    </section>
-
-    <section class="qr-area" id="qr-area" hidden>
-      <p>Scan to open this demo on your phone:</p>
-      <div id="qr-code"></div>
-      <p class="qr-help">In mic mode, the receiving device only needs to hear the audio. Point your phone at the speaker after scanning.</p>
     </section>
 
     <section class="custom-files" id="custom-files" hidden>
@@ -69,6 +75,36 @@
       </label>
 
       <p class="custom-note">Audio decoding happens in your browser. Files never leave your device. Generated AFS files can be downloaded once ready.</p>
+    </section>
+
+    <section class="player-area" id="player-area" aria-live="polite">
+      <div class="empty-state">
+        <p class="empty-state-prompt">Pick a demo to begin.</p>
+        <dl class="demo-index">
+          <div class="demo-index-row">
+            <dt><span class="demo-index-num">01</span> Desync subtitles</dt>
+            <dd>One video, two SRTs — one correct, one shifted +2 s. Toggle AFS correction and watch the off subtitles snap into place.</dd>
+          </div>
+          <div class="demo-index-row">
+            <dt><span class="demo-index-num">02</span> Desync video</dt>
+            <dd>Original clip and an edited version with three short cuts, playing side by side. Same SRT for both. Only the AFS-corrected track stays in sync past the first cut.</dd>
+          </div>
+          <div class="demo-index-row">
+            <dt><span class="demo-index-num">03</span> Cannons</dt>
+            <dd>Tchaikovsky's 1812 finale with screen flashes and phone vibration on every cannon hit. Use mic mode to fire haptics from a phone listening to a laptop speaker.</dd>
+          </div>
+          <div class="demo-index-row">
+            <dt><span class="demo-index-num">04</span> Your own files</dt>
+            <dd>Upload any media file; an AFS is generated in-browser. Optionally bring your own SRT and AFS too. Nothing leaves your device.</dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="qr-area" id="qr-area" hidden>
+      <p>Scan to open this demo on your phone:</p>
+      <div id="qr-code"></div>
+      <p class="qr-help">In mic mode, the receiving device only needs to hear the audio. Point your phone at the speaker after scanning.</p>
     </section>
   </main>
 
