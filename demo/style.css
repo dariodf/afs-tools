@@ -41,7 +41,6 @@
   --status-error: #a83232;
   --subtitle-bg: rgba(20, 20, 14, 0.85);
   --subtitle-fg: #fbf8ef;
-  --cannon-flash: #ff6b35;
 
   /* Pre-aliases kept for backwards compatibility with app.js */
   --border: var(--rule);
@@ -799,25 +798,33 @@ header {
    Haptics demo
    ----------------------------------------------------------------------- */
 
-.cannon-flash {
-  position: fixed;
-  inset: 0;
-  background: var(--cannon-flash);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 90ms ease-out;
-  z-index: 100;
-  mix-blend-mode: multiply;
+/* Pseudo-haptic window shake — fires when a cannon event
+   triggers, so desktop visitors get a visceral feedback in lieu
+   of a real vibration motor. The animation moves the whole
+   body for ~220 ms, mirroring the navigator.vibrate(200)
+   duration on touch devices. */
+@keyframes haptic-shake {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  12%      { transform: translate3d(-6px, 2px, 0); }
+  25%      { transform: translate3d(7px, -2px, 0); }
+  37%      { transform: translate3d(-5px, 3px, 0); }
+  50%      { transform: translate3d(6px, -3px, 0); }
+  62%      { transform: translate3d(-4px, 2px, 0); }
+  75%      { transform: translate3d(3px, -2px, 0); }
+  87%      { transform: translate3d(-2px, 1px, 0); }
 }
 
-.cannon-flash.firing {
-  opacity: 0.85;
+.haptic-shake {
+  animation: haptic-shake 220ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  will-change: transform;
 }
 
-/* Inline variant: placed in the document flow below the audio
-   element, visible all the time. The video plays a flash on each
-   cannon hit; between hits it shows its last frame muted, which is
-   fine. */
+@media (prefers-reduced-motion: reduce) {
+  .haptic-shake { animation: none; }
+}
+
+/* Inline variant: reserves layout space; the cannon video paints
+   only during a fire event (see .showing rule below). */
 .cannon-video.inline {
   width: 100%;
   max-width: 480px;
@@ -1146,10 +1153,6 @@ footer > p:first-child {
     scroll-behavior: auto !important;
   }
 
-  .cannon-flash {
-    /* Keep the flash visible but instant — it's load-bearing in the demo */
-    transition: opacity 0ms ease-out;
-  }
 }
 
 /* -----------------------------------------------------------------------
@@ -1371,20 +1374,6 @@ footer > p:first-child {
   visibility: visible;
 }
 
-.listen-cannons-flash {
-  position: absolute;
-  inset: 0;
-  background: rgba(255, 220, 180, 0.95);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 220ms ease-out;
-}
-
-.listen-cannons-flash.firing {
-  opacity: 0.85;
-  transition-duration: 30ms;
-}
-
 .listen-cannons-overlay {
   grid-area: 1 / 1;
   position: relative;
@@ -1416,4 +1405,115 @@ footer > p:first-child {
 .listen-cannons-stage[data-state="ready"] .listen-waveform,
 .listen-cannons-stage[data-state="error"] .listen-waveform {
   opacity: 0;
+}
+
+/* -----------------------------------------------------------------------
+   Cannon annotator — inline tool for hand-timing cannon events
+   ----------------------------------------------------------------------- */
+
+.cannon-annotator {
+  margin: 0.5rem auto 0;
+  max-width: 480px;
+  width: 100%;
+  font-size: 0.875rem;
+}
+
+.cannon-annotator summary {
+  cursor: pointer;
+  color: var(--fg-dim);
+  padding: 0.25rem 0;
+  user-select: none;
+}
+
+.cannon-annotator[open] summary {
+  color: var(--fg);
+  margin-bottom: 0.5rem;
+}
+
+.annotator-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.annotator-timer {
+  font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace);
+  font-size: 1.125rem;
+  font-variant-numeric: tabular-nums;
+  background: var(--accent-soft);
+  color: var(--fg);
+  padding: 0.25rem 0.625rem;
+  border-radius: 4px;
+  min-width: 6.5rem;
+  text-align: center;
+}
+
+.annotator-btn {
+  font: inherit;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--fg);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.annotator-btn:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.annotator-mark {
+  border-color: var(--accent);
+  font-weight: 500;
+}
+
+.annotator-pulse {
+  background: var(--accent) !important;
+  color: var(--accent-fg, #fff) !important;
+}
+
+.annotator-output {
+  font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace);
+  font-size: 0.8125rem;
+  background: var(--accent-soft);
+  color: var(--fg);
+  padding: 0.625rem 0.75rem;
+  border-radius: 4px;
+  margin: 0;
+  white-space: pre;
+  overflow-x: auto;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.annotator-comp {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  color: var(--fg-dim);
+  margin: 0 0 0.5rem;
+  flex-wrap: wrap;
+}
+
+.annotator-comp input {
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  width: 4.5rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.annotator-comp-hint {
+  flex: 1 1 100%;
+  font-style: italic;
+  padding-left: 0;
+  color: var(--fg-muted);
 }

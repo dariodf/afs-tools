@@ -69,7 +69,7 @@ async function check(file, importer) {
 // and the two dedicated mic listen pages.
 await check(path.join(ROOT, "app.js"), "(entry: index.html)");
 await check(path.join(ROOT, "src/listen.js"), "(entry: listen.html)");
-await check(path.join(ROOT, "src/listen-cannons.js"), "(entry: listen-cannons.html)");
+await check(path.join(ROOT, "src/listen-haptics.js"), "(entry: listen-haptics.html)");
 
 if (errors.length > 0) {
   console.error("Import resolution errors:");

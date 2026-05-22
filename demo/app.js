@@ -159,9 +159,9 @@ function companionUrlFor(demoId) {
     url.searchParams.set("srt", "content/dialogue-clip.en.srt");
     url.searchParams.set("title", "Dialogue clip");
   } else if (demoId === "haptics") {
-    // Cannons demo: companion goes to listen-cannons.html (black
-    // stage, cannon visual + boom on detected hits).
-    url.pathname = url.pathname.replace(/[^/]*$/, "listen-cannons.html");
+    // Haptics demo: companion goes to listen-haptics.html (black
+    // stage, cannon visual + vibration on detected hits).
+    url.pathname = url.pathname.replace(/[^/]*$/, "listen-haptics.html");
     url.search = "";
     url.searchParams.set("afs", "content/overture-finale.afs");
     url.searchParams.set("events", "content/overture-finale-cannons.json");
@@ -429,13 +429,13 @@ async function startDesyncVideoDemo() {
 }
 
 // -----------------------------------------------------------------------
-// Cannons demo: 1812 Overture finale + cannon visual + vibration
+// Haptics demo: 1812 Overture finale, vibration + silent cannon visual
 // -----------------------------------------------------------------------
 
 async function startHapticsDemo() {
-  // Mic mode is on its own page (listen-cannons.html). The main
-  // cannons demo offers two timing sources, matching the subtitles
-  // demo's pattern:
+  // Mic mode is on its own page (listen-haptics.html). The main
+  // demo offers two timing sources, matching the subtitles demo's
+  // pattern:
   //
   //   Pre-calculated — uses the hand-annotated cannon-events JSON
   //     directly off the local audio's currentTime. No matcher,
@@ -445,6 +445,14 @@ async function startHapticsDemo() {
   //   Listen · audio output — live fingerprint the audio element
   //     and drive haptics from the matcher's reported position.
   //     Demonstrates the offset adaptation pipeline.
+  //
+  // Important: the cannon visual is silent on this page. An
+  // earlier iteration played a Fort Snelling cannon SFX over the
+  // music for impact, but that created a feedback path when a
+  // separate device (or window) was listening via mic — its
+  // capture got dirtied by THIS device's local cannon. Removing
+  // the audio leaves the music's own embedded cannons audible and
+  // keeps the mic flow clean for cross-device demos.
   state.els.playerArea.innerHTML = `
     <div class="afs-mode-row" role="tablist" aria-label="AFS source">
       <span class="afs-mode-label">AFS source:</span>
@@ -454,9 +462,24 @@ async function startHapticsDemo() {
     </div>
     <div class="haptics-stage">
       <audio id="demo-audio" controls preload="metadata"></audio>
-      <p class="haptics-instructions">Press play. The cannon flashes on each hit.</p>
-      <video id="cannon-video" class="cannon-video inline" playsinline></video>
-      <div class="cannon-flash" id="cannon-flash"></div>
+      <p class="haptics-instructions">Press play. The cannon flashes on each detected hit; on a phone the device also vibrates.</p>
+      <video id="cannon-video" class="cannon-video inline" muted playsinline preload="auto"></video>
+      <details class="cannon-annotator">
+        <summary>Annotate cannon timings</summary>
+        <div class="annotator-row">
+          <span class="annotator-timer" id="annotator-timer">0:00.000</span>
+          <button class="annotator-btn annotator-mark" id="annotator-mark" type="button">Mark cannon · SPACE</button>
+          <button class="annotator-btn annotator-undo" id="annotator-undo" type="button">Undo</button>
+          <button class="annotator-btn annotator-clear" id="annotator-clear" type="button">Clear</button>
+          <button class="annotator-btn annotator-copy" id="annotator-copy" type="button">Copy JSON</button>
+        </div>
+        <label class="annotator-comp">
+          Tap-reaction comp:
+          <input type="number" id="annotator-comp" value="150" min="0" max="500" step="10">
+          ms <span class="annotator-comp-hint">(subtracted from each mark; humans tap ~150 ms after hearing)</span>
+        </label>
+        <pre class="annotator-output" id="annotator-output">// play the audio, press SPACE on each cannon</pre>
+      </details>
     </div>
   `;
 
@@ -464,7 +487,9 @@ async function startHapticsDemo() {
   audioEl.src = "content/overture-finale.mp3";
   const cannonVideo = document.getElementById("cannon-video");
   cannonVideo.src = "content/cannon-shot.mp4";
-  const flashEl = document.getElementById("cannon-flash");
+
+  // -------- Annotator: hand-mark cannon timestamps as the audio plays --
+  setupCannonAnnotator(audioEl);
 
   const events = await fetch("content/overture-finale-cannons.json")
     .then((r) => r.json())
@@ -505,7 +530,7 @@ async function startHapticsDemo() {
     setModeDetail(`${events.length} pre-annotated cannon events`);
     haptics = new HapticsEventManager(
       events,
-      () => fireCannon(cannonVideo, flashEl, false),
+      () => fireCannon(cannonVideo),
       { predictionOffsetMs: 0 },
     );
     startRafLoop(() => {
@@ -527,7 +552,7 @@ async function startHapticsDemo() {
     const initialOffsetMs = offsetOverride != null ? Number(offsetOverride) : 190;
     haptics = new HapticsEventManager(
       events,
-      () => fireCannon(cannonVideo, flashEl, false),
+      () => fireCannon(cannonVideo),
       { predictionOffsetMs: initialOffsetMs },
     );
 
@@ -559,6 +584,12 @@ async function startHapticsDemo() {
 
     await session.loadAFS("content/overture-finale.afs");
     await session.startDirect(audioEl);
+
+    // Reuse the matcher's AudioContext for SFX playback so we don't
+    // spin up a second context just to play cannon shots.
+    if (session.capture?.audioContext) {
+      cannonSfx.attach(session.capture.audioContext);
+    }
 
     if (offsetOverride == null && session.capture?.audioContext) {
       computedDefaultMs = estimateMatchLatencyMs(session.capture.audioContext, {
@@ -592,18 +623,137 @@ async function startHapticsDemo() {
   await switchMode("precalc");
 }
 
-// fireCannon: play the cannon clip once, flash the screen, vibrate.
-// Show-play-hide (no looping). Restarts if called again while still
-// playing so each cannon event fires its own visual.
-function fireCannon(videoEl, flashEl, fullscreen) {
-  if (navigator.vibrate) {
-    navigator.vibrate(200);
+// setupCannonAnnotator: live timer + tap-to-mark UI for hand-
+// timing cannon events against the audio. Output formatted as the
+// `events` array of overture-finale-cannons.json — copyable
+// directly into the file.
+function setupCannonAnnotator(audioEl) {
+  const timerEl = document.getElementById("annotator-timer");
+  const outputEl = document.getElementById("annotator-output");
+  const markBtn = document.getElementById("annotator-mark");
+  const undoBtn = document.getElementById("annotator-undo");
+  const clearBtn = document.getElementById("annotator-clear");
+  const copyBtn = document.getElementById("annotator-copy");
+  if (!timerEl || !outputEl) return;
+
+  const marks = [];
+
+  function formatTime(ms) {
+    const totalSec = ms / 1000;
+    const m = Math.floor(totalSec / 60);
+    const s = Math.floor(totalSec % 60);
+    const milli = Math.floor(ms % 1000);
+    return `${m}:${String(s).padStart(2, "0")}.${String(milli).padStart(3, "0")}`;
   }
-  flashEl.classList.add("firing");
-  setTimeout(() => flashEl.classList.remove("firing"), 200);
+
+  function render() {
+    if (marks.length === 0) {
+      outputEl.textContent = "// play the audio, press SPACE on each cannon";
+      return;
+    }
+    const lines = marks.map(
+      (ms, i) =>
+        `  { "time_ms": ${ms}, "type": "cannon", "label": "Cannon ${i + 1}" }`,
+    );
+    outputEl.textContent = `"events": [\n${lines.join(",\n")}\n]`;
+  }
+
+  function getCompMs() {
+    const inp = document.getElementById("annotator-comp");
+    const v = inp ? Number(inp.value) : 0;
+    return Number.isFinite(v) && v >= 0 ? v : 0;
+  }
+
+  function mark() {
+    if (audioEl.readyState < 1) return;
+    const ms = Math.max(0, Math.round(audioEl.currentTime * 1000 - getCompMs()));
+    marks.push(ms);
+    render();
+    // Briefly highlight the mark button so the click feels acknowledged.
+    markBtn.classList.add("annotator-pulse");
+    setTimeout(() => markBtn.classList.remove("annotator-pulse"), 120);
+  }
+
+  function undo() {
+    marks.pop();
+    render();
+  }
+
+  function clear() {
+    marks.length = 0;
+    render();
+  }
+
+  async function copy() {
+    if (marks.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(outputEl.textContent);
+      copyBtn.textContent = "Copied!";
+      setTimeout(() => (copyBtn.textContent = "Copy JSON"), 1200);
+    } catch {
+      // Clipboard API failed (older browser / no permission). Select
+      // the output element so the user can Cmd/Ctrl-C themselves.
+      const range = document.createRange();
+      range.selectNodeContents(outputEl);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  }
+
+  markBtn.addEventListener("click", mark);
+  undoBtn.addEventListener("click", undo);
+  clearBtn.addEventListener("click", clear);
+  copyBtn.addEventListener("click", copy);
+
+  // SPACE-anywhere shortcut, but stay out of the way when the user
+  // is typing into an input or interacting with the native audio
+  // controls. (The <audio> element doesn't take SPACE focus by
+  // default, so we don't need a special-case for it here.)
+  function onKeydown(e) {
+    if (e.code !== "Space" || e.repeat) return;
+    const t = e.target;
+    if (
+      t &&
+      (t.tagName === "INPUT" ||
+        t.tagName === "TEXTAREA" ||
+        t.isContentEditable)
+    ) {
+      return;
+    }
+    e.preventDefault();
+    mark();
+  }
+  document.addEventListener("keydown", onKeydown);
+
+  // Live timer. requestAnimationFrame keeps it smooth without
+  // burning a setInterval; we just show audioEl.currentTime in the
+  // same format as the JSON it produces.
+  function tick() {
+    if (!document.body.contains(timerEl)) {
+      // Demo switched away; stop the loop and detach the listener.
+      document.removeEventListener("keydown", onKeydown);
+      return;
+    }
+    timerEl.textContent = formatTime(audioEl.currentTime * 1000);
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+// fireCannon: show the cannon clip silently, vibrate on touch
+// devices, and shake the whole window so desktop visitors get a
+// pseudo-haptic feedback (since they have no vibration motor).
+function fireCannon(videoEl) {
+  if (navigator.vibrate) navigator.vibrate(200);
+
+  // Window shake — a small jolt of the whole document. The real
+  // haptic motor handles touch devices; this is the visual stand-
+  // in for everyone else.
+  document.body.classList.add("haptic-shake");
+  setTimeout(() => document.body.classList.remove("haptic-shake"), 220);
 
   videoEl.classList.add("showing");
-  if (fullscreen) videoEl.classList.add("fullscreen");
   try {
     videoEl.currentTime = 0;
     const playPromise = videoEl.play();
@@ -614,7 +764,8 @@ function fireCannon(videoEl, flashEl, fullscreen) {
     videoEl.removeEventListener("ended", onEnded);
   };
   videoEl.addEventListener("ended", onEnded);
-  // Safety: hide after the clip's duration regardless of "ended" firing.
+  // Safety hide that covers the clip's duration in case "ended"
+  // doesn't fire (some mobile browsers).
   setTimeout(() => videoEl.classList.remove("showing"), 2500);
 }
 

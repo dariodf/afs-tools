@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>AFS Listen — cannon haptics via microphone</title>
+    <title>AFS Listen — haptics via microphone</title>
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover"
@@ -16,16 +16,16 @@
         <video
           id="cannon-video"
           class="listen-cannons-video"
+          muted
           playsinline
           preload="auto"
         ></video>
-        <div class="listen-cannons-flash" id="cannon-flash"></div>
       </div>
 
       <div class="listen-cannons-overlay">
         <header class="listen-header">
           <div class="listen-source-title" id="listen-source-title">
-            AFS Listen · cannons
+            AFS Listen · haptics
           </div>
           <div class="listen-status" id="listen-status">tap to listen</div>
         </header>
@@ -56,6 +56,6 @@
         }
       }
     </script>
-    <script type="module" src="src/listen-cannons.js"></script>
+    <script type="module" src="src/listen-haptics.js"></script>
   </body>
 </html>

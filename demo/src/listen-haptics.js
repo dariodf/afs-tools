@@ -1,25 +1,26 @@
-// listen-cannons.js
-// Entry point for the dedicated "listen to cannons via microphone"
-// page. Sibling of listen.js but tailored for the haptics demo:
+// listen-haptics.js
+// Entry point for the dedicated "haptics via microphone" page —
+// sibling of listen.js but tailored for the haptics demo:
 //
 //   - No subtitle text, no SRT.
 //   - Stage is black; the cannon video stays hidden until a hit fires.
 //   - On each detected cannon hit:
-//       * Show the cannon video (plays its visual once, then hides)
-//       * Play a synthesized cannon-boom SFX (cannon-shot.mp4 has no
-//         audio of its own; see cannon-boom.js)
-//       * Flash the screen
-//       * Vibrate the device (best-effort)
+//       * Show the (silent) cannon visual briefly
+//       * Vibrate the device (best-effort, real haptics on Android)
+//       * Shake the whole window — pseudo-haptic for desktops
 //   - Optional waveform on the foot, same as listen.html.
+//
+// Deliberately no audio: an earlier iteration played a synthesized
+// or recorded cannon SFX on each fire, but the moment this page
+// runs alongside the main demo on the same speakers, the local
+// cannon bleeds into the mic and confuses the matcher. The music
+// the user is hearing already contains real cannons; we don't
+// need to add more.
 //
 // URL params:
 //   afs    — source AFS (default content/overture-finale.afs)
 //   events — JSON file of timed events (default content/overture-finale-cannons.json)
 //   title  — display title (optional)
-//
-// Matcher tuning matches listen.js: coldStartMinHashes 16, tick
-// every chromaprint hop. The HapticsEventManager handles the
-// schedule-ahead timing for actual cannon firing.
 
 import { DemoSession } from "./demo-session.js";
 import { HapticsEventManager } from "./haptics-events.js";
@@ -38,7 +39,6 @@ const els = {
   startBtn: document.getElementById("listen-start"),
   waveform: document.getElementById("listen-waveform"),
   cannonVideo: document.getElementById("cannon-video"),
-  flashEl: document.getElementById("cannon-flash"),
 };
 
 els.sourceTitle.textContent = TITLE;
@@ -51,30 +51,26 @@ function setStatus(t) {
   els.status.textContent = t;
 }
 
-// fireCannon: invoked by HapticsEventManager on each scheduled hit.
-// The cannon video carries its own real audio (Fort Snelling
-// muzzle-loader recording), so we just play it back unmuted —
-// the audio track lands at full volume on its own.
+// fireCannon: invoked by HapticsEventManager on each scheduled
+// hit. Silent video, real haptic vibration on touch devices,
+// pseudo-haptic window-shake everywhere else.
 function fireCannon() {
   if (navigator.vibrate) navigator.vibrate(200);
 
-  els.flashEl.classList.add("firing");
-  setTimeout(() => els.flashEl.classList.remove("firing"), 220);
+  document.body.classList.add("haptic-shake");
+  setTimeout(() => document.body.classList.remove("haptic-shake"), 220);
 
   els.cannonVideo.classList.add("showing");
   try {
     els.cannonVideo.currentTime = 0;
     const p = els.cannonVideo.play();
     if (p) p.catch(() => {});
-  } catch {
-    // Browser denied — the flash carries the moment.
-  }
+  } catch {}
   const onEnded = () => {
     els.cannonVideo.classList.remove("showing");
     els.cannonVideo.removeEventListener("ended", onEnded);
   };
   els.cannonVideo.addEventListener("ended", onEnded);
-  // Safety hide in case "ended" doesn't fire (some browsers).
   setTimeout(() => els.cannonVideo.classList.remove("showing"), 2500);
 }
 
@@ -112,9 +108,14 @@ els.startBtn.addEventListener("click", async () => {
       coldStartMinHashes: 16,
       matchIntervalMs: 125,
       matchWindowSeconds: 8,
-      stayThreshold: 55,
-      enterThreshold: 75,
-      swapMarginConfidence: 6,
+      // Haptics false-positives are far more disruptive than
+      // subtitle false-positives (a phantom cannon BOOM is jarring;
+      // a phantom subtitle is just briefly wrong). Tighten the
+      // matcher's commit threshold and require higher per-hit
+      // confidence before firing anything.
+      stayThreshold: 65,
+      enterThreshold: 80,
+      swapMarginConfidence: 8,
     });
     session.onStatus = (s) => {
       if (s.kind === "buffering") {
@@ -146,14 +147,45 @@ els.startBtn.addEventListener("click", async () => {
     // sound and the matcher's report, due to the acoustic path +
     // capture buffer + chromaprint hop. The schedule-ahead haptics
     // manager fires this many ms BEFORE the projected event time
-    // so the local SFX lines up with what the user is hearing.
+    // so the visual + vibration line up with what the user is
+    // hearing.
     const haptics = new HapticsEventManager(
       events,
       () => fireCannon(),
       { predictionOffsetMs: 220 },
     );
-    session.onPosition = (timeMs) => {
-      haptics.step(timeMs, performance.now());
+
+    // Consumer-side guard against haptic false-positives. The
+    // matcher will commit positions at confidence >= stayThreshold
+    // (65) for status display, but we only let haptics fire when:
+    //   1. The reported confidence is high (>= 80, i.e. above
+    //      enterThreshold — "in sync" not "tentative"), AND
+    //   2. The position is consistent with the previous tick's
+    //      position under real-time playback (within ~500 ms drift).
+    //
+    // Both conditions together rule out the failure mode you saw
+    // with random speech: a one-tick high-confidence false positive
+    // won't trigger because there's no consistent neighbor; sustained
+    // wrong matches at consistent positions are vanishingly rare
+    // against an unrelated source AFS.
+    let lastFireablePos = null;
+    let lastFireableWall = 0;
+    const FIRE_CONFIDENCE_MIN = 80;
+    const FIRE_DRIFT_TOLERANCE_MS = 500;
+    session.onPosition = (timeMs, confidence) => {
+      if (confidence < FIRE_CONFIDENCE_MIN) {
+        lastFireablePos = null;
+        return;
+      }
+      const wallNow = performance.now();
+      if (lastFireablePos != null) {
+        const expectedPos = lastFireablePos + (wallNow - lastFireableWall);
+        if (Math.abs(timeMs - expectedPos) < FIRE_DRIFT_TOLERANCE_MS) {
+          haptics.step(timeMs, wallNow);
+        }
+      }
+      lastFireablePos = timeMs;
+      lastFireableWall = wallNow;
     };
 
     new MicWaveform(session.capture, els.waveform).start();
