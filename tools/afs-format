@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# afs-format: convert chromaprint fpcalc raw output to AFS v0.1 format.
+#
+# Reads stdin (fpcalc -raw output, format: FILE=..., DURATION=..., FINGERPRINT=...)
+# Writes AFS to stdout.
+#
+# Usage:
+#   fpcalc -raw -length 0 audio.wav | afs-format [OPTIONS] > audio.afs
+#
+# Options:
+#   --title TEXT           Source title
+#   --year INT             Source year
+#   --imdb-id TEXT         IMDb identifier
+#   --language CODE        Audio language (ISO 639-1 or 639-3)
+#   --sha256 HEX           SHA-256 of source file
+#   --duration-ms INT      Source duration in ms
+#   --generator-name TEXT  Override generator string
+#   -h, --help             Show this help
+#
+# Time cues in the output body are in milliseconds, computed with
+# cumulative-correct rounding from chromaprint's exact hop interval
+# (4096000 / 33075 ms ≈ 123.83 ms per hop) so different generators
+# produce byte-identical cue sequences. See SPEC.md §A.1.
+
+set -euo pipefail
+
+# Defaults
+TITLE=""
+YEAR=""
+IMDB_ID=""
+LANGUAGE=""
+SHA256=""
+DURATION_MS=""
+GENERATOR_NAME="afs-format 0.1.0"
+
+usage() {
+  sed -n 's/^# \?//;1,/^$/p' "$0" | tail -n +2
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --title)        TITLE="$2"; shift 2;;
+    --year)         YEAR="$2"; shift 2;;
+    --imdb-id)      IMDB_ID="$2"; shift 2;;
+    --language)     LANGUAGE="$2"; shift 2;;
+    --sha256)       SHA256="$2"; shift 2;;
+    --duration-ms)  DURATION_MS="$2"; shift 2;;
+    --generator-name) GENERATOR_NAME="$2"; shift 2;;
+    -h|--help)      usage; exit 0;;
+    *) echo "afs-format: unknown option '$1'" >&2; exit 1;;
+  esac
+done
+
+# Read stdin into a variable. fpcalc output is small (a few KB to MB).
+INPUT=$(cat)
+
+# Extract FINGERPRINT line. fpcalc -raw output:
+#   FILE=...
+#   DURATION=...
+#   FINGERPRINT=12345,67890,...
+FINGERPRINT_LINE=$(echo "$INPUT" | grep -E '^FINGERPRINT=' || true)
+if [[ -z "$FINGERPRINT_LINE" ]]; then
+  echo "afs-format: no FINGERPRINT line in input (did fpcalc run with -raw?)" >&2
+  exit 1
+fi
+
+# Strip "FINGERPRINT=" prefix.
+FINGERPRINT_DATA="${FINGERPRINT_LINE#FINGERPRINT=}"
+
+# If duration not provided, try to read it from input.
+if [[ -z "$DURATION_MS" ]]; then
+  DURATION_LINE=$(echo "$INPUT" | grep -E '^DURATION=' || true)
+  if [[ -n "$DURATION_LINE" ]]; then
+    DURATION_SEC="${DURATION_LINE#DURATION=}"
+    # Convert seconds (may be float) to milliseconds.
+    DURATION_MS=$(awk "BEGIN { printf \"%d\", $DURATION_SEC * 1000 }")
+  fi
+fi
+
+GENERATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Emit the AFS header.
+cat <<EOF
+[afs]
+version = "0.1"
+
+[fingerprint]
+algorithm = "chromaprint"
+
+[metadata]
+generator = "${GENERATOR_NAME}"
+generated_at = "${GENERATED_AT}"
+EOF
+
+# Emit metadata.audio if any audio-related fields set.
+if [[ -n "$LANGUAGE" ]]; then
+  echo ""
+  echo "[metadata.audio]"
+  [[ -n "$LANGUAGE" ]] && echo "language = \"${LANGUAGE}\""
+fi
+
+# Emit metadata.source if any source-related fields set.
+if [[ -n "$TITLE" || -n "$YEAR" || -n "$IMDB_ID" || -n "$SHA256" || -n "$DURATION_MS" ]]; then
+  echo ""
+  echo "[metadata.source]"
+  [[ -n "$TITLE" ]]       && echo "title = \"${TITLE}\""
+  [[ -n "$YEAR" ]]        && echo "year = ${YEAR}"
+  [[ -n "$DURATION_MS" ]] && echo "duration_ms = ${DURATION_MS}"
+  [[ -n "$IMDB_ID" ]]     && echo "imdb_id = \"${IMDB_ID}\""
+  [[ -n "$SHA256" ]]      && echo "sha256 = \"${SHA256}\""
+fi
+
+# Body delimiter.
+echo ""
+echo "---"
+
+# Emit one "time_ms hash" line per fingerprint hash. The hashes are
+# comma-separated in the FINGERPRINT line. Cues are computed from the
+# absolute hash index with cumulative rounding (SPEC.md §A.1) so the
+# bash and JS generators produce identical output.
+echo "$FINGERPRINT_DATA" | awk '
+  BEGIN { FS=","; OFS=" " }
+  {
+    for (i = 1; i <= NF; i++) {
+      hash = $i
+      # fpcalc may emit negative integers (signed int32). Convert to
+      # unsigned uint32.
+      if (hash < 0) hash = hash + 4294967296
+      # cue_ms = round((i-1) * 4096000 / 33075)
+      # awk: int(x + 0.5) is the round-half-up idiom, matches JS Math.round.
+      idx = i - 1
+      time_ms = int(idx * 4096000 / 33075 + 0.5)
+      print time_ms, hash
+    }
+  }
+'

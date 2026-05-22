@@ -1,0 +1,21 @@
+{
+  "name": "afs-tools",
+  "version": "0.0.1",
+  "description": "Reference implementation and browser demo for AFS (Audio Fingerprint Sync).",
+  "type": "module",
+  "private": true,
+  "author": "Darío De Filippis <dariodefilippis@gmail.com>",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/dariodf/afs-tools",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dariodf/afs-tools.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dariodf/afs-tools/issues"
+  },
+  "dependencies": {
+    "qrcode-generator": "^2.0.4",
+    "smol-toml": "^1.6.1"
+  }
+}

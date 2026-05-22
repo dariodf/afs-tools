@@ -1,0 +1,13 @@
+{
+  "_comment": "Hand-annotated cannon timings for the 1812 Overture finale clip. Replace these placeholder times with real timings after clipping overture-finale.mp3. Listen to the clip and note each cannon hit; typical finales have 6-8 cannon events.",
+  "events": [
+    { "time_ms": 18000, "type": "cannon", "label": "Cannon 1" },
+    { "time_ms": 22000, "type": "cannon", "label": "Cannon 2" },
+    { "time_ms": 26000, "type": "cannon", "label": "Cannon 3" },
+    { "time_ms": 30000, "type": "cannon", "label": "Cannon 4" },
+    { "time_ms": 55000, "type": "cannon", "label": "Cannon 5" },
+    { "time_ms": 60000, "type": "cannon", "label": "Cannon 6" },
+    { "time_ms": 65000, "type": "cannon", "label": "Cannon 7" },
+    { "time_ms": 70000, "type": "cannon", "label": "Cannon 8" }
+  ]
+}

@@ -1,0 +1,37 @@
+AFS Tools
+Copyright 2026 Darío De Filippis
+
+This product includes software developed as a reference implementation
+of the AFS (Audio Fingerprint Sync) specification.
+
+---
+
+This product includes or depends on the following third-party works:
+
+Chromaprint
+  Used via the fpcalc binary (CLI tools) and, in the browser demo, via
+  a WebAssembly build that is loaded as a separate .wasm module at
+  runtime. Chromaprint is required to generate and verify the
+  fingerprints described by the AFS spec.
+  License: GNU Lesser General Public License, version 2.1 (LGPL-2.1)
+  Source:  https://github.com/acoustid/chromaprint
+  Notice:  The LGPL-2.1 permits use of Chromaprint as a library in this
+           project. Users who wish to substitute a modified version of
+           Chromaprint may replace the fpcalc binary on their PATH or
+           the .wasm file shipped under demo/vendor/.
+
+smol-toml
+  Bundled in demo/vendor/smol-toml/ and used by the browser demo to
+  parse AFS file headers.
+  License: MIT
+  Source:  https://github.com/squirrelchat/smol-toml
+  Notice:  The MIT license text is preserved alongside the vendored
+           source files.
+
+qrcode-generator
+  Bundled in demo/vendor/qrcode-generator/ and used by the browser
+  demo to display QR codes for sharing demo URLs.
+  License: MIT
+  Source:  https://github.com/kazuhikoarase/qrcode-generator
+  Notice:  The MIT license text is preserved alongside the vendored
+           source files.

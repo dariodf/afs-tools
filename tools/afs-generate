@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# afs-generate: produce an AFS v0.1 file from any media file.
+#
+# Pipes through:
+#   1. ffmpeg to extract mono 11025 Hz WAV audio.
+#   2. fpcalc -raw to fingerprint the audio.
+#   3. afs-format to write the result as AFS.
+#
+# Usage:
+#   afs-generate [OPTIONS] <input-file> [output-file]
+#
+# Options:
+#   --title TEXT      Source title
+#   --year INT        Source year
+#   --imdb-id TEXT    IMDb identifier
+#   --language CODE   Audio language
+#   --no-sha256       Skip computing SHA-256 (faster for large files)
+#   -o, --output PATH Output file (default: input filename with .afs extension)
+#   -q, --quiet       Suppress progress output
+#   -h, --help        Show this help
+#
+# Examples:
+#   afs-generate movie.mp4
+#   afs-generate --title "My Movie" --year 2024 movie.mp4
+#   afs-generate --no-sha256 -o custom.afs movie.mp4
+
+set -euo pipefail
+
+# Defaults
+TITLE=""
+YEAR=""
+IMDB_ID=""
+LANGUAGE=""
+SKIP_SHA256=0
+OUTPUT=""
+QUIET=0
+INPUT=""
+
+usage() {
+  sed -n 's/^# \?//;1,/^$/p' "$0" | tail -n +2
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --title)     TITLE="$2"; shift 2;;
+    --year)      YEAR="$2"; shift 2;;
+    --imdb-id)   IMDB_ID="$2"; shift 2;;
+    --language)  LANGUAGE="$2"; shift 2;;
+    --no-sha256) SKIP_SHA256=1; shift;;
+    -o|--output) OUTPUT="$2"; shift 2;;
+    -q|--quiet)  QUIET=1; shift;;
+    -h|--help)   usage; exit 0;;
+    -*)          echo "afs-generate: unknown option '$1'" >&2; exit 1;;
+    *)
+      if [[ -z "$INPUT" ]]; then
+        INPUT="$1"
+      else
+        # Second positional argument is the output file.
+        OUTPUT="$1"
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$INPUT" ]]; then
+  echo "afs-generate: no input file specified" >&2
+  usage >&2
+  exit 1
+fi
+
+if [[ ! -f "$INPUT" ]]; then
+  echo "afs-generate: input file not found: $INPUT" >&2
+  exit 1
+fi
+
+# Default output: input filename with .afs extension.
+if [[ -z "$OUTPUT" ]]; then
+  OUTPUT="${INPUT%.*}.afs"
+fi
+
+# Check dependencies.
+for cmd in ffmpeg fpcalc; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "afs-generate: required tool not found: $cmd" >&2
+    exit 1
+  fi
+done
+
+# Pick sha256 tool (Linux: sha256sum, macOS: shasum -a 256).
+SHA256_CMD=""
+if [[ $SKIP_SHA256 -eq 0 ]]; then
+  if command -v sha256sum >/dev/null 2>&1; then
+    SHA256_CMD="sha256sum"
+  elif command -v shasum >/dev/null 2>&1; then
+    SHA256_CMD="shasum -a 256"
+  else
+    echo "afs-generate: warning: no sha256sum/shasum found, skipping hash" >&2
+    SKIP_SHA256=1
+  fi
+fi
+
+# Find the afs-format script in the same directory.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AFS_FORMAT="$SCRIPT_DIR/afs-format"
+if [[ ! -x "$AFS_FORMAT" ]]; then
+  echo "afs-generate: afs-format not found or not executable at $AFS_FORMAT" >&2
+  exit 1
+fi
+
+log() {
+  [[ $QUIET -eq 0 ]] && echo "$@" >&2
+}
+
+log "afs-generate: processing $INPUT"
+
+# Compute SHA-256 of the original input file bytes, per SPEC.md §3.3.2.
+# A re-encoded or remuxed copy of the same audio will not match.
+SHA256_VALUE=""
+if [[ $SKIP_SHA256 -eq 0 ]]; then
+  log "  computing file SHA-256..."
+  SHA256_VALUE=$($SHA256_CMD < "$INPUT" | awk '{ print $1 }')
+  log "  sha256 = $SHA256_VALUE"
+fi
+
+# Get duration in ms via ffprobe if available.
+DURATION_MS=""
+if command -v ffprobe >/dev/null 2>&1; then
+  DURATION_SEC=$(
+    ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$INPUT" \
+      || echo ""
+  )
+  if [[ -n "$DURATION_SEC" ]]; then
+    DURATION_MS=$(awk "BEGIN { printf \"%d\", $DURATION_SEC * 1000 }")
+  fi
+fi
+
+# Build afs-format flags.
+FORMAT_FLAGS=()
+[[ -n "$TITLE" ]]        && FORMAT_FLAGS+=("--title" "$TITLE")
+[[ -n "$YEAR" ]]         && FORMAT_FLAGS+=("--year" "$YEAR")
+[[ -n "$IMDB_ID" ]]      && FORMAT_FLAGS+=("--imdb-id" "$IMDB_ID")
+[[ -n "$LANGUAGE" ]]     && FORMAT_FLAGS+=("--language" "$LANGUAGE")
+[[ -n "$SHA256_VALUE" ]] && FORMAT_FLAGS+=("--sha256" "$SHA256_VALUE")
+[[ -n "$DURATION_MS" ]]  && FORMAT_FLAGS+=("--duration-ms" "$DURATION_MS")
+
+# Run the pipeline.
+log "  fingerprinting..."
+ffmpeg -hide_banner -loglevel error -i "$INPUT" -vn -ac 1 -ar 11025 -f wav - 2>/dev/null \
+  | fpcalc -raw -length 0 - \
+  | "$AFS_FORMAT" "${FORMAT_FLAGS[@]}" \
+  > "$OUTPUT"
+
+HASH_COUNT=$(grep -c '^[0-9]' "$OUTPUT" || true)
+OUT_SIZE=$(wc -c < "$OUTPUT")
+log "  wrote $OUTPUT ($HASH_COUNT hashes, $OUT_SIZE bytes)"

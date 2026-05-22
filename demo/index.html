@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="AFS demo. Sync subtitles, haptics, or any device reaction to playing audio without a network connection, using audio fingerprinting.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='28' font-family='monospace'%3E%E2%88%BF%3C/text%3E%3C/svg%3E">
+  <title>AFS — Audio Fingerprint Sync Demo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>AFS</h1>
+    <p class="tagline">Sync anything to audio.</p>
+    <p class="links">
+      <a href="https://github.com/dariodf/afs">spec</a>
+      ·
+      <a href="https://github.com/dariodf/afs-tools">source</a>
+    </p>
+  </header>
+
+  <main>
+    <section class="controls">
+      <label for="demo-select">Demo:</label>
+      <select id="demo-select">
+        <option value="desync-srt">Desync demo 1: shifted subtitles</option>
+        <option value="desync-video">Desync demo 2: edited video</option>
+        <option value="haptics">Haptics: 1812 Overture cannons</option>
+        <option value="custom">Use your own files...</option>
+      </select>
+
+      <label for="mode-select">Mode:</label>
+      <select id="mode-select">
+        <option value="direct">Direct (play here)</option>
+        <option value="mic">Microphone (listen)</option>
+      </select>
+
+      <button id="start-btn">Start</button>
+      <button id="fullscreen-btn" hidden>Fullscreen</button>
+    </section>
+
+    <section class="status" id="status">
+      <span class="status-label">Status:</span>
+      <span class="status-value" id="status-text">idle</span>
+    </section>
+
+    <section class="player-area" id="player-area">
+      <!-- The active demo populates this region. -->
+    </section>
+
+    <section class="qr-area" id="qr-area" hidden>
+      <p>Scan to open this demo on your phone:</p>
+      <div id="qr-code"></div>
+      <p class="qr-help">In mic mode, the receiving device only needs to hear the audio. Point your phone at the speaker after scanning.</p>
+    </section>
+
+    <section class="custom-files" id="custom-files" hidden>
+      <h2>Use your own files</h2>
+      <p>Drop in any media file with a matching SRT to test AFS on your own content. If you don't have an AFS file, one will be generated in your browser.</p>
+
+      <label>Media file:
+        <input type="file" id="custom-media" accept="audio/*,video/*">
+      </label>
+      <label>Subtitle file (optional):
+        <input type="file" id="custom-srt" accept=".srt,.vtt,text/plain">
+      </label>
+      <label>AFS file (optional, generated otherwise):
+        <input type="file" id="custom-afs" accept=".afs,text/plain">
+      </label>
+
+      <p class="custom-note">Audio decoding happens in your browser. Files never leave your device. Generated AFS files can be downloaded once ready.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p>AFS v0.1 reference demo. Apache 2.0.</p>
+    <p class="attributions">
+      Content credits:
+      Tears of Steel © <a href="https://mango.blender.org/">Blender Foundation</a>, CC-BY 3.0 ·
+      1812 Overture by Skidmore College Orchestra (PD via <a href="https://musopen.org">musopen.org</a>) ·
+      Cannon footage © <a href="https://ncpedia.org/media/video/firing-18th-century">NCpedia/Alamance Battleground</a>, CC-BY-ND 4.0
+    </p>
+  </footer>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "smol-toml": "./vendor/smol-toml/index.js",
+        "qrcode-generator": "./vendor/qrcode-generator/index.mjs"
+      }
+    }
+  </script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

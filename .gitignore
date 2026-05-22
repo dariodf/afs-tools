@@ -1,0 +1,30 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Node
+node_modules/
+package-lock.json
+
+# Test/build artifacts
+/build/
+/dist/
+*.wasm.gz
+# vendor/ is built from node_modules via the deploy workflow
+demo/vendor/
+
+# Local content for testing (real media files; .afs and .srt are checked in)
+demo/content/*.mp4
+demo/content/*.webm
+demo/content/*.mp3
+demo/content/*.m4a
+demo/content/*.wav
+
+# Logs
+*.log
