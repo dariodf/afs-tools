@@ -110,6 +110,16 @@ jobs:
           # tracking through all blocks and bounded recovery
           # across cuts.
           node test/test-full-playback-walk.js
+          # afs-mapping module edge cases (pure Node).
+          node test/test-afs-mapping-edges.js
+          # Demo-session and haptics-events lifecycle invariants.
+          node test/test-demo-session-lifecycle.js
+          # Cold-start at several different playhead positions.
+          node test/test-cold-start-scenarios.js
+          # Matcher recovers after a simulated seek/scrub.
+          node test/test-seek-recovery.js
+          # afs-generate CLI: end-to-end conformance against parser.
+          node test/test-cli-conformance.js
 
       - uses: actions/configure-pages@v5
 

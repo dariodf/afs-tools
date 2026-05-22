@@ -109,7 +109,13 @@ if [[ ! -x "$AFS_FORMAT" ]]; then
 fi
 
 log() {
-  [[ $QUIET -eq 0 ]] && echo "$@" >&2
+  # An `[[ ... ]] && echo ...` here returns the test's exit code
+  # when QUIET=1, which under `set -e` aborts the script on the
+  # very first log() call. Use an if-block so the function always
+  # returns success.
+  if [[ $QUIET -eq 0 ]]; then
+    echo "$@" >&2
+  fi
 }
 
 log "afs-generate: processing $INPUT"

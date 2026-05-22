@@ -659,6 +659,83 @@ test("SubtitleRenderer: toggle between modes", () => {
   assertEqual(el.textContent, "World"); // back to raw
 });
 
+test("SubtitleRenderer: empty cues array shows nothing at any time", () => {
+  const el = stubElement();
+  const r = new SubtitleRenderer(el, []);
+  r.setRawTimeMs(0);
+  assertEqual(el.textContent, "");
+  r.setRawTimeMs(50000);
+  assertEqual(el.textContent, "");
+  r.setUseAfs(true);
+  r.setAfsTimeMs(50000);
+  assertEqual(el.textContent, "");
+});
+
+test("SubtitleRenderer: time before first cue is empty", () => {
+  const cues = parseSRT(
+    `1\n00:00:01,000 --> 00:00:03,000\nHello\n`,
+  );
+  const el = stubElement();
+  const r = new SubtitleRenderer(el, cues);
+  r.setRawTimeMs(500); // 0.5s — before first cue starts at 1s
+  assertEqual(el.textContent, "");
+});
+
+test("SubtitleRenderer: time after last cue is empty", () => {
+  const cues = parseSRT(
+    `1\n00:00:01,000 --> 00:00:03,000\nHello\n`,
+  );
+  const el = stubElement();
+  const r = new SubtitleRenderer(el, cues);
+  r.setRawTimeMs(10000); // 10s — far after the single cue ends at 3s
+  assertEqual(el.textContent, "");
+});
+
+test("SubtitleRenderer: useAfs=true falls back to raw when AFS time is null", () => {
+  // This is the fallback path added during the live demo work:
+  // when the user toggles AFS mode on BEFORE the matcher has
+  // reported any position, the renderer should keep displaying
+  // the raw-time-driven cue rather than freezing on whatever was
+  // active at toggle time.
+  const cues = parseSRT(
+    `1\n00:00:01,000 --> 00:00:03,000\nHello\n\n2\n00:00:05,000 --> 00:00:07,000\nWorld\n`,
+  );
+  const el = stubElement();
+  const r = new SubtitleRenderer(el, cues);
+  r.setUseAfs(true); // afsTimeMs still null
+  r.setRawTimeMs(2000);
+  assertEqual(el.textContent, "Hello"); // raw fallback active
+  r.setRawTimeMs(6000);
+  assertEqual(el.textContent, "World"); // raw still drives display
+  r.setAfsTimeMs(2000); // AFS finally reports a position
+  assertEqual(el.textContent, "Hello"); // now AFS takes over
+  r.setRawTimeMs(6000); // raw updates while AFS is active — ignored
+  assertEqual(el.textContent, "Hello");
+});
+
+test("SubtitleRenderer: text changes minimize DOM writes", () => {
+  // The renderer should only assign to textContent when the cue
+  // text actually changes. Frequent setRawTimeMs calls within the
+  // same cue should not trigger re-assignments.
+  const cues = parseSRT(
+    `1\n00:00:01,000 --> 00:00:03,000\nHello\n`,
+  );
+  let writes = 0;
+  const el = {
+    _t: "",
+    set textContent(v) { writes++; this._t = v; },
+    get textContent() { return this._t; },
+  };
+  const r = new SubtitleRenderer(el, cues);
+  r.setRawTimeMs(1500); // → "Hello" (1 write)
+  r.setRawTimeMs(1600); // still "Hello" — no write
+  r.setRawTimeMs(1700);
+  r.setRawTimeMs(1800);
+  assertEqual(writes, 1);
+  r.setRawTimeMs(4000); // → "" (2nd write)
+  assertEqual(writes, 2);
+});
+
 // -----------------------------------------------------------------------
 // HapticsEventManager tests (schedule-ahead architecture)
 // -----------------------------------------------------------------------
