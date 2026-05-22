@@ -152,57 +152,51 @@ duration.
 
 ## Cannon video
 
-**File:** `cannon-shot.mp4` (trimmed from `9.2inchhowitzerfiringWWI.ogv`
-on Wikimedia Commons — US Army Signal Corps footage, c. 1918)
+**File:** `cannon-shot.mp4` (trimmed and re-encoded from
+`Fort_snelling_cannon_20120612_lq.ogv` on Wikimedia Commons)
 
 ### Why this specific clip
 
-Source: https://commons.wikimedia.org/wiki/File:9.2inchhowitzerfiringWWI.ogv
+Source: https://commons.wikimedia.org/wiki/File:Fort_snelling_cannon_20120612_lq.ogv
 
-- **Public Domain** (US federal-government work, 17 USC §105; also
-  tagged CC Public Domain Mark 1.0). No attribution required, no
-  share-alike, no derivative restrictions — zero impact on the
-  project's licensing posture.
-- **A real artillery firing** — adds authenticity to the haptics demo.
-  Pedantically a howitzer rather than a Napoleonic-era cannon, but
-  visually identical to a lay viewer (large barrel, smoke, flash,
-  recoil), and the demo just needs "a thing that goes boom" to pair
-  with the 1812 finale's cannon hits.
-- **Programmatically fetchable** — direct download from Wikimedia
-  Commons, no manual right-click step.
-- **Short enough to fit** — 17 seconds at 384×288; we trim to
-  ~1 second of just the firing moment.
+- **Real video + real audio in one file.** Earlier choices were
+  silent video clips (we'd had to synthesize or pair separate
+  cannon SFX); this one has the actual cannon report recorded with
+  the visual. The 1812 demo's emotional payoff is the sound + visual
+  arriving together with the music, and a clip that contains both
+  removes a class of synchronization bugs.
+- **Era-appropriate weapon.** Fort Snelling fires a muzzle-loading
+  reproduction cannon for its daily ceremony — the same style of
+  smoothbore black-powder field piece Tchaikovsky would have known
+  in 1880, and what historically-informed performances of the 1812
+  finale use. The earlier WWI howitzer alternative was visually
+  "old artillery" but acoustically very different (modern breech-
+  loaded, recoil-compensated).
+- **Trimmable to a tight 2-second clip.** The source is 28 s of
+  ceremony; we extract a 2.4-s window centered on the firing
+  moment at ~24.7 s and re-encode as MP4 (H.264 + AAC) at 480p for
+  broad browser support.
 
-The main trade-off is resolution: 384×288 is very SD. Acceptable for
-a 1-second cutaway flash but not pretty. ffmpeg can upscale on
-output if needed; the alternative is one of the CC-BY-SA HD options
-below, which we deliberately passed on for license cleanliness.
+### License
+
+- **CC BY 3.0 Unported** — attribution required, no share-alike, no
+  derivative restriction. Attribution is satisfied by a one-line
+  entry in the project NOTICE file; the CC BY grant on this single
+  file does NOT relicense the rest of the project.
+- Author: G. Edward Johnson (Wikimedia user EnLorax).
+- Full attribution text used in NOTICE: *"Firing the cannon at Fort
+  Snelling" by G. Edward Johnson, CC BY 3.0, via Wikimedia Commons.*
 
 ### Considered alternatives
 
 | Source | License | Why not |
 |--------|---------|---------|
-| **9.2inchhowitzerfiringWWI.ogv** (Wikimedia) | PD-USGov | Picked — cleanest license |
-| Cape Town Noon Gun (Wikimedia) | CC-BY-SA 3.0 | HD, but share-alike forces the trimmed clip to ship as CC-BY-SA — more attribution complexity |
-| Preußentag Festung Ehrenbreitstein cannons (Wikimedia) | CC-BY-SA 3.0 DE | HD Napoleonic-era reenactment, best visual match — same share-alike caveat |
-| NCpedia "Firing an 18th-century cannon" | CC-BY-ND 4.0 | Trimming a clip is a derivative under most readings of the ND clause; ND prohibits derivatives |
-| YouTube cannon clips | Mostly all-rights-reserved | ToS prohibits programmatic download even of CC-licensed content |
+| **Fort Snelling cannon** (Wikimedia) | CC BY 3.0 | Picked — real audio, era-appropriate |
+| 9.2inchhowitzerfiringWWI.ogv (Wikimedia) | PD-USGov | Previously picked; dropped because the audio track is essentially silent-film hiss (max −44 dB) — no real cannon report |
+| qubodup "Cannon Shot" (Freesound) | CC0 | Audio-only — would have needed to pair with a separate video |
+| Cape Town Noon Gun (Wikimedia) | CC-BY-SA 3.0 | Share-alike forces our trimmed clip to ship as CC-BY-SA — more attribution complexity, possibly relicensing concerns |
+| NCpedia "Firing an 18th-century cannon" | CC-BY-ND 4.0 | Trimming is a derivative; ND prohibits |
 | Stock footage sites | Commercial | Not free for redistribution |
-| Synthesize/animate a cannon | n/a | More work, less visually impressive |
-
-The NCpedia clip was the original choice before the project's
-licensing review. Dropped because CC-BY-ND prohibits derivative
-works, and trimming a multi-minute clip down to one second is a
-derivative under most readings of the ND clause. Maintaining "no
-impact on our licensing" rules out ND content.
-
-### A note on a possible Tchaikovsky-meme overlay
-
-A future polish pass could replace or overlay the cannon video with
-a humorous Tchaikovsky-themed visual at each cannon hit (Tchaikovsky's
-PD portrait + a cannon graphic, animated for ~1s). Not part of v0.1;
-flagged here as a personality-layer option once the foundational demo
-is live.
 
 ---
 

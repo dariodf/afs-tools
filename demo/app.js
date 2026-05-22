@@ -455,7 +455,7 @@ async function startHapticsDemo() {
     <div class="haptics-stage">
       <audio id="demo-audio" controls preload="metadata"></audio>
       <p class="haptics-instructions">Press play. The cannon flashes on each hit.</p>
-      <video id="cannon-video" class="cannon-video inline" muted playsinline></video>
+      <video id="cannon-video" class="cannon-video inline" playsinline></video>
       <div class="cannon-flash" id="cannon-flash"></div>
     </div>
   `;
@@ -614,8 +614,8 @@ function fireCannon(videoEl, flashEl, fullscreen) {
     videoEl.removeEventListener("ended", onEnded);
   };
   videoEl.addEventListener("ended", onEnded);
-  // Safety: hide after 2s regardless of "ended" firing.
-  setTimeout(() => videoEl.classList.remove("showing"), 2000);
+  // Safety: hide after the clip's duration regardless of "ended" firing.
+  setTimeout(() => videoEl.classList.remove("showing"), 2500);
 }
 
 // -----------------------------------------------------------------------

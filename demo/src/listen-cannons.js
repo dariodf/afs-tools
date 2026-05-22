@@ -24,7 +24,6 @@
 import { DemoSession } from "./demo-session.js";
 import { HapticsEventManager } from "./haptics-events.js";
 import { MicWaveform } from "./mic-waveform.js";
-import { playCannonBoom } from "./cannon-boom.js";
 
 const params = new URLSearchParams(window.location.search);
 const AFS_URL = params.get("afs") ?? "content/overture-finale.afs";
@@ -53,10 +52,10 @@ function setStatus(t) {
 }
 
 // fireCannon: invoked by HapticsEventManager on each scheduled hit.
-// Mirrors the inline fireCannon() in app.js but adds the synthesized
-// boom (the mic-mode user isn't necessarily near the audio source's
-// speakers — the local SFX is what sells the impact).
-function fireCannon(audioContext) {
+// The cannon video carries its own real audio (Fort Snelling
+// muzzle-loader recording), so we just play it back unmuted —
+// the audio track lands at full volume on its own.
+function fireCannon() {
   if (navigator.vibrate) navigator.vibrate(200);
 
   els.flashEl.classList.add("firing");
@@ -68,7 +67,7 @@ function fireCannon(audioContext) {
     const p = els.cannonVideo.play();
     if (p) p.catch(() => {});
   } catch {
-    // Browser denied — the flash + boom carry the moment.
+    // Browser denied — the flash carries the moment.
   }
   const onEnded = () => {
     els.cannonVideo.classList.remove("showing");
@@ -76,13 +75,7 @@ function fireCannon(audioContext) {
   };
   els.cannonVideo.addEventListener("ended", onEnded);
   // Safety hide in case "ended" doesn't fire (some browsers).
-  setTimeout(() => els.cannonVideo.classList.remove("showing"), 1800);
-
-  try {
-    playCannonBoom(audioContext);
-  } catch {
-    // Audio context could be in a weird state; the visual still fires.
-  }
+  setTimeout(() => els.cannonVideo.classList.remove("showing"), 2500);
 }
 
 async function preload() {
@@ -156,7 +149,7 @@ els.startBtn.addEventListener("click", async () => {
     // so the local SFX lines up with what the user is hearing.
     const haptics = new HapticsEventManager(
       events,
-      () => fireCannon(session.capture.audioContext),
+      () => fireCannon(),
       { predictionOffsetMs: 220 },
     );
     session.onPosition = (timeMs) => {

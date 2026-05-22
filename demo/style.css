@@ -827,6 +827,14 @@ header {
   border-radius: 4px;
   aspect-ratio: 4 / 3;
   object-fit: cover;
+  /* Reserve the layout space but stay fully hidden until a cannon
+     event fires. visibility:hidden keeps the poster frame from
+     painting; .showing flips it on. */
+  visibility: hidden;
+}
+
+.cannon-video.inline.showing {
+  visibility: visible;
 }
 
 /* Fullscreen variant (mic mode): cover the entire viewport. */

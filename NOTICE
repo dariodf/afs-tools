@@ -52,3 +52,14 @@ qrcode-generator
   Source:  https://github.com/kazuhikoarase/qrcode-generator
   Notice:  The MIT license text is preserved alongside the vendored
            source files.
+
+cannon-shot.mp4 (demo/content/)
+  Trimmed and re-encoded from "Fort_snelling_cannon_20120612_lq.ogv"
+  on Wikimedia Commons. Used by the haptics demo as the per-cannon
+  visual + sound payoff.
+  License: Creative Commons Attribution 3.0 Unported (CC BY 3.0)
+  Source:  https://commons.wikimedia.org/wiki/File:Fort_snelling_cannon_20120612_lq.ogv
+  Notice:  "Firing the cannon at Fort Snelling" by G. Edward Johnson,
+           licensed CC BY 3.0, via Wikimedia Commons. The CC BY grant
+           on this single asset does not relicense any other part of
+           the project; only this file is offered under CC BY 3.0.
