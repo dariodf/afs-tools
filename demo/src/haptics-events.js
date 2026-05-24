@@ -66,6 +66,22 @@ export class HapticsEventManager {
   // variable playback rates; if we ever do, this is the spot to thread
   // a rate scaler through.
   step(positionMs, wallTimeMs) {
+    // Auto-replay: if the source jumps backwards by more than
+    // RESTART_DROP_MS (default 5 s), assume playback restarted
+    // and re-arm every event. Without this, the `fired` set
+    // would suppress every event on the second playthrough.
+    // The subtitles demo gets this implicitly because it's
+    // stateless (just reads positionMs and renders the current
+    // cue); haptics needs the explicit reset because of `fired`.
+    const restartDropMs = 5000;
+    if (
+      this.lastPosition != null &&
+      positionMs < this.lastPosition - restartDropMs
+    ) {
+      for (const { handle } of this.pending.values()) this.cancel(handle);
+      this.pending.clear();
+      this.fired.clear();
+    }
     this.lastPosition = positionMs;
     this.lastWallTime = wallTimeMs;
 
@@ -75,14 +91,19 @@ export class HapticsEventManager {
       const sourceDelta = event.time_ms - positionMs;
 
       // Event is in the past beyond what we'd fire compensating for
-      // offset. Mark as missed; don't schedule a stale fire.
+      // offset. If a setTimeout was already scheduled for it on a
+      // previous tick, LET IT FIRE — the schedule was made when the
+      // event was still in the future, the JS event loop just hasn't
+      // serviced it yet. Cancelling here was the cause of "precalc
+      // misses cannons": at predictionOffsetMs=0 even a 1 ms tardy
+      // setTimeout would get cancelled on the next rAF tick before
+      // it ever ran. We only mark MISSED events (never scheduled)
+      // as fired so the per-tick loop doesn't try to schedule them
+      // anymore.
       if (sourceDelta < -this.predictionOffsetMs) {
-        const pending = this.pending.get(i);
-        if (pending) {
-          this.cancel(pending.handle);
-          this.pending.delete(i);
+        if (!this.pending.has(i)) {
+          this.fired.add(i);
         }
-        this.fired.add(i);
         continue;
       }
 

@@ -46,6 +46,15 @@ const els = {
   waveform: document.getElementById("listen-waveform"),
 };
 
+// Fixed subtitle lead — show the cue ~100 ms earlier than the
+// matcher's reported source position. The matcher itself is
+// already a chromaprint-hop or two behind real audio (capture
+// buffer + tick interval); 100 ms of lead nets out a roughly
+// "on time" display without bothering the user with a tuner.
+// The demo is meant to feel magical; manual fiddling defeats
+// that. Override only via ?lead=N for debugging.
+const SUBTITLE_LEAD_MS = Number(params.get("lead") ?? 100) || 100;
+
 els.sourceTitle.textContent = TITLE;
 
 function setState(state) {
@@ -98,9 +107,21 @@ let lastMatchSourceMs = null;
 let lastMatchWall = null;
 let confirmedMatches = 0; // consecutive non-tentative matches; gate for "in sync"
 
+// Cap the forward projection at one tick's worth of "between-
+// matcher-ticks smoothing" — beyond that, we assume the source
+// has paused or gone silent and freeze the displayed position.
+// Without this, lastMatchWall stays pinned to the moment of the
+// last accepted match while `now` keeps advancing, so the
+// subtitle scrolls forward through cues that never actually
+// played.
+const PROJECT_MAX_MS = 250;
 function currentProjectedSourceMs() {
   if (lastMatchSourceMs == null) return null;
-  return lastMatchSourceMs + (performance.now() - lastMatchWall);
+  const elapsed = Math.min(
+    performance.now() - lastMatchWall,
+    PROJECT_MAX_MS,
+  );
+  return lastMatchSourceMs + elapsed + SUBTITLE_LEAD_MS;
 }
 
 function startRender() {
@@ -109,6 +130,10 @@ function startRender() {
     if (t != null && cues) {
       const cue = findActiveCue(cues, t);
       els.subtitleText.textContent = cue ? cue.text : "";
+    } else {
+      // LOST (or never anchored) — show nothing rather than the
+      // last cue from before we lost sync.
+      els.subtitleText.textContent = "";
     }
     requestAnimationFrame(tick);
   }
@@ -136,9 +161,147 @@ els.startBtn.addEventListener("click", async () => {
       enterThreshold: 75,
       swapMarginConfidence: 6,
     });
-    session.onPosition = (timeMs) => {
-      lastMatchSourceMs = timeMs;
-      lastMatchWall = performance.now();
+    // Position tracker with a small state machine. Three states:
+    //
+    //   LOST — no trusted anchor. Any confident match is accepted
+    //     and promotes us straight to TRACKING. This is the entry
+    //     state and the recovery state when we go long enough
+    //     without a forward-consistent match.
+    //
+    //   TRACKING — we have a trusted anchor and project it forward
+    //     by elapsed wall time. New reports within
+    //     CONTINUITY_TOLERANCE_MS of the projection are accepted
+    //     (steady-state). Reports outside that window are treated
+    //     as a JUMP — they require a corroborating second report
+    //     before we move the anchor (this is what keeps random
+    //     noise from yanking the subtitles to a wrong cue).
+    //
+    //   The matcher itself can find the right position even after
+    //   the user seeks (it falls through to cold-start when local
+    //   search fails), so consistency-based jump confirmation
+    //   handles both intentional seek-back and seek-forward.
+    //
+    // If we haven't promoted ANY report in LOST_TIMEOUT_MS we
+    // fall back to LOST so a single re-acquisition can grab us
+    // again.
+    const POSITION_CONFIDENCE_MIN = 65;
+    const CONTINUITY_TOLERANCE_MS = 1500;
+    const LOST_TIMEOUT_MS = 6000;
+    // Silence gate. The matcher will happily commit a position
+    // against ambient room noise — speech, fan, anything — because
+    // chromaprint hashes are well-defined even on low-energy
+    // signals. We refuse to update the subtitle if the captured
+    // audio's peak amplitude is below this threshold for the
+    // current tick. 0.02 ≈ -34 dBFS — anything quieter than a
+    // half-loud spoken word in a normal room.
+    const SILENCE_PEAK_THRESHOLD = 0.02;
+    // After this many consecutive quiet ticks, drop back to LOST
+    // entirely so the next REAL audio re-acquires from scratch.
+    const SILENCE_TICKS_BEFORE_LOST = 16; // ≈ 2 s at 125 ms tick
+    let trustedPos = null;      // last accepted source position
+    let trustedWall = 0;        // wall time of trustedPos
+    let pendingJumpPos = null;  // candidate position waiting for confirmation
+    let pendingJumpWall = 0;
+    let lastAcceptWall = 0;     // wall time of the most recent accepted report
+    let lastPeak = 0;           // updated from onDiagnostic
+    let silenceTicks = 0;
+
+    function goLost() {
+      trustedPos = null;
+      pendingJumpPos = null;
+      lastMatchSourceMs = null;
+      lastMatchWall = null;
+    }
+
+    session.onDiagnostic = (d) => {
+      if (d.peakAmplitude != null) {
+        lastPeak = d.peakAmplitude;
+        if (lastPeak < SILENCE_PEAK_THRESHOLD) {
+          silenceTicks += 1;
+          if (silenceTicks >= SILENCE_TICKS_BEFORE_LOST) goLost();
+        } else {
+          silenceTicks = 0;
+        }
+      }
+      // Time-based LOST trigger. The matcher might keep reporting
+      // low-confidence garbage we always filter out (so onPosition's
+      // own timeout check never runs), OR stop reporting entirely.
+      // The diagnostic callback fires every tick regardless, so we
+      // do the staleness check here.
+      if (
+        trustedPos != null &&
+        lastAcceptWall > 0 &&
+        performance.now() - lastAcceptWall > LOST_TIMEOUT_MS
+      ) {
+        goLost();
+      }
+    };
+
+    session.onPosition = (timeMs, confidence) => {
+      if (confidence != null && confidence < POSITION_CONFIDENCE_MIN) return;
+      // Don't accept matches while the room is quiet. Even with
+      // high reported confidence, the matcher latches onto random
+      // positions when fed near-silence; gating here keeps the
+      // subtitle from showing wrong cues over the user's living
+      // room background.
+      if (lastPeak < SILENCE_PEAK_THRESHOLD) return;
+      const wallNow = performance.now();
+
+      // Fall back to LOST if too long since the last accepted report.
+      if (
+        trustedPos != null &&
+        lastAcceptWall > 0 &&
+        wallNow - lastAcceptWall > LOST_TIMEOUT_MS
+      ) {
+        trustedPos = null;
+        pendingJumpPos = null;
+      }
+
+      if (trustedPos === null) {
+        // LOST: any confident match anchors us.
+        trustedPos = timeMs;
+        trustedWall = wallNow;
+        pendingJumpPos = null;
+        lastAcceptWall = wallNow;
+        lastMatchSourceMs = timeMs;
+        lastMatchWall = wallNow;
+        return;
+      }
+
+      // TRACKING: compare against forward-projected anchor.
+      const projected = trustedPos + (wallNow - trustedWall);
+      const driftMs = Math.abs(timeMs - projected);
+
+      if (driftMs <= CONTINUITY_TOLERANCE_MS) {
+        // Continuing forward — refresh the anchor.
+        trustedPos = timeMs;
+        trustedWall = wallNow;
+        pendingJumpPos = null;
+        lastAcceptWall = wallNow;
+        lastMatchSourceMs = timeMs;
+        lastMatchWall = wallNow;
+        return;
+      }
+
+      // JUMP: needs corroboration. If a pending jump is forward-
+      // consistent with THIS report, accept (it's a real seek or
+      // re-acquisition). Otherwise keep the latest one as the
+      // new pending and wait one more tick.
+      if (pendingJumpPos != null) {
+        const pendingProjected =
+          pendingJumpPos + (wallNow - pendingJumpWall);
+        if (Math.abs(timeMs - pendingProjected) <= CONTINUITY_TOLERANCE_MS) {
+          trustedPos = timeMs;
+          trustedWall = wallNow;
+          pendingJumpPos = null;
+          lastAcceptWall = wallNow;
+          lastMatchSourceMs = timeMs;
+          lastMatchWall = wallNow;
+          return;
+        }
+      }
+      pendingJumpPos = timeMs;
+      pendingJumpWall = wallNow;
     };
     session.onStatus = (status) => {
       if (status.kind === "buffering") {
@@ -172,6 +335,8 @@ els.startBtn.addEventListener("click", async () => {
 
     setStatus("loading AFS…");
     await session.loadAFS(AFS_URL);
+    var sourceDurationMs =
+      session.afs?.parsed?.metadata?.source?.duration_ms ?? null;
 
     setStatus("starting microphone…");
     await session.startMic();

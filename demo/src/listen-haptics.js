@@ -41,6 +41,11 @@ const els = {
   cannonVideo: document.getElementById("cannon-video"),
 };
 
+// Track whether vibration was successfully invoked the first time
+// we tried it (inside the user-gesture handler). If false, the
+// browser blocked it — system settings, permission, or unsupported.
+let vibrationOk = false;
+
 els.sourceTitle.textContent = TITLE;
 els.cannonVideo.src = "content/cannon-shot.mp4";
 
@@ -55,6 +60,13 @@ function setStatus(t) {
 // hit. Silent video, real haptic vibration on touch devices,
 // pseudo-haptic window-shake everywhere else.
 function fireCannon() {
+  // navigator.vibrate returns true if the OS accepted the call,
+  // false if it was blocked (no system vibration permission,
+  // silent mode without vibrate, or user-gesture requirement
+  // not satisfied). We don't surface per-fire failures because
+  // the visible flash + window shake still carry the moment;
+  // the initial gesture-time probe in startListening() is what
+  // tells the user about persistent blockage.
   if (navigator.vibrate) navigator.vibrate(200);
 
   document.body.classList.add("haptic-shake");
@@ -62,7 +74,9 @@ function fireCannon() {
 
   els.cannonVideo.classList.add("showing");
   try {
-    els.cannonVideo.currentTime = 0;
+    // Skip past the 480 ms of pre-firing buildup so the visible
+    // flash lands on the haptic moment, not 480 ms after it.
+    els.cannonVideo.currentTime = 0.48;
     const p = els.cannonVideo.play();
     if (p) p.catch(() => {});
   } catch {}
@@ -71,7 +85,7 @@ function fireCannon() {
     els.cannonVideo.removeEventListener("ended", onEnded);
   };
   els.cannonVideo.addEventListener("ended", onEnded);
-  setTimeout(() => els.cannonVideo.classList.remove("showing"), 2500);
+  setTimeout(() => els.cannonVideo.classList.remove("showing"), 2000);
 }
 
 async function preload() {
@@ -94,6 +108,16 @@ els.startBtn.addEventListener("click", async () => {
   els.startBtn.disabled = true;
   setState("starting");
   setStatus("requesting microphone…");
+
+  // Probe vibration NOW, inside the user-gesture handler — this
+  // is the most generous window for the browser to accept it.
+  // If even this short probe fails, the device or browser is
+  // blocking vibration (system settings, silent mode, or
+  // unsupported). We tell the user so they don't think the demo
+  // is broken when haptics don't fire.
+  if (navigator.vibrate) {
+    vibrationOk = navigator.vibrate(40) === true;
+  }
 
   let events;
   try {
@@ -139,20 +163,27 @@ els.startBtn.addEventListener("click", async () => {
 
     setStatus("loading AFS…");
     await session.loadAFS(AFS_URL);
+    const sourceDurationMs =
+      session.afs?.parsed?.metadata?.source?.duration_ms ?? null;
 
     setStatus("starting microphone…");
     await session.startMic();
 
-    // Mic mode has ~220 ms of extra latency between actual cannon
-    // sound and the matcher's report, due to the acoustic path +
-    // capture buffer + chromaprint hop. The schedule-ahead haptics
+    // Mic mode latency between the actual cannon sound and the
+    // matcher's report = acoustic propagation + capture buffer +
+    // chromaprint hop + match interval. Empirically ~320 ms on a
+    // Pixel 10 Pro; varies per device. The schedule-ahead haptics
     // manager fires this many ms BEFORE the projected event time
-    // so the visual + vibration line up with what the user is
-    // hearing.
+    // so the visual + vibration land on the heard cannon, not
+    // after it. Tune at the URL: ?offset=350 etc.
+    const offsetOverride = new URLSearchParams(window.location.search)
+      .get("offset");
+    const predictionOffsetMs =
+      offsetOverride != null ? Number(offsetOverride) : 320;
     const haptics = new HapticsEventManager(
       events,
       () => fireCannon(),
-      { predictionOffsetMs: 220 },
+      { predictionOffsetMs },
     );
 
     // Consumer-side guard against haptic false-positives. The
@@ -168,6 +199,9 @@ els.startBtn.addEventListener("click", async () => {
     // won't trigger because there's no consistent neighbor; sustained
     // wrong matches at consistent positions are vanishingly rare
     // against an unrelated source AFS.
+    // Per-tick haptic gate (false-positive defense — see comment
+    // above near stayThreshold/enterThreshold). The HapticsEventManager
+    // itself handles auto-replay via backward-position-jump detection.
     let lastFireablePos = null;
     let lastFireableWall = 0;
     const FIRE_CONFIDENCE_MIN = 80;
@@ -189,14 +223,18 @@ els.startBtn.addEventListener("click", async () => {
     };
 
     new MicWaveform(session.capture, els.waveform).start();
-
     requestWakeLock();
 
-    setStatus("listening…");
+    setStatus(
+      vibrationOk
+        ? "listening…"
+        : "listening… (vibration blocked by this device)",
+    );
   } catch (e) {
     setState("error");
     setStatus(`error: ${e.message}`);
     els.startBtn.disabled = false;
+    els.startBtn.hidden = false;
     return;
   }
 

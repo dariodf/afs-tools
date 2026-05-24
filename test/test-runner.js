@@ -893,6 +893,111 @@ test("HapticsEventManager: doesn't re-schedule an event after it fires", () => {
   assertEqual(fired.length, 1);
 });
 
+test("HapticsEventManager: pending fire is NOT cancelled when position passes event time", () => {
+  // Regression test for the "precalc misses cannons" bug:
+  // a fire was scheduled on tick N when the event was still in the
+  // future; on tick N+1 the reported position has moved past the
+  // event time (e.g. 60 fps rAF can overshoot a setTimeout boundary
+  // by ~16 ms). The old logic CANCELLED the still-pending fire and
+  // marked the event missed, so the fire never ran. The correct
+  // behavior: trust the pending schedule and let the setTimeout
+  // callback drain naturally.
+  const events = [{ time_ms: 1000, type: "cannon" }];
+  const { h, fired, sched } = makeHaptics(events, { predictionOffsetMs: 0 });
+  // Schedule the fire on the first tick.
+  h.step(900, 0); // event 100 ms ahead, wallDelay 100 ms
+  assertEqual(sched.records.length, 1);
+  assertEqual(sched.records[0].cancelled, false);
+
+  // Next rAF tick: position has moved past the event time (overshot
+  // by 50 ms). The setTimeout for the fire hasn't been serviced yet.
+  h.step(1050, 150);
+
+  // The original schedule must still be alive.
+  assertEqual(sched.records.length, 1, "no second schedule was created");
+  assertEqual(
+    sched.records[0].cancelled,
+    false,
+    "pending fire was NOT cancelled despite position overshoot",
+  );
+
+  // When the event loop services the setTimeout, the fire happens.
+  sched.fire(0);
+  assertEqual(fired.length, 1);
+  assertEqual(fired[0], 1000);
+});
+
+test("HapticsEventManager: an unscheduled past event is marked missed (no fire)", () => {
+  // Counter-test for the case above: if the manager first sees the
+  // event when its position is already past, there's no pending
+  // setTimeout to honor. Mark it as fired so the per-tick loop
+  // stops considering it, and don't fire anything.
+  const events = [{ time_ms: 1000, type: "cannon" }];
+  const { h, fired, sched } = makeHaptics(events, { predictionOffsetMs: 100 });
+  // Position 1300 — past the event by 200 ms, beyond the 100 ms
+  // offset compensation. No prior tick scheduled this.
+  h.step(1300, 1300);
+  assertEqual(sched.records.length, 0, "nothing scheduled");
+  // A later tick must not retroactively schedule it either.
+  h.step(1400, 1400);
+  assertEqual(sched.records.length, 0);
+  assertEqual(fired.length, 0);
+});
+
+test("HapticsEventManager: auto-replay on large backward position jump", () => {
+  // When the source restarts (audio replayed, mic recaptures from
+  // the beginning, etc.), the matcher's reported position drops
+  // back to ~0. The manager detects a drop > 5 s and clears its
+  // `fired` set so the events fire again on the second pass.
+  // The subtitles demo gets this implicitly because it's
+  // stateless; haptics needs the explicit reset.
+  const events = [
+    { time_ms: 10000, type: "cannon", label: "Cannon 1" },
+    { time_ms: 20000, type: "cannon", label: "Cannon 2" },
+  ];
+  const { h, fired, sched } = makeHaptics(events, { predictionOffsetMs: 0 });
+
+  // First playthrough: fire both events.
+  h.step(9900, 0);
+  h.step(19900, 10000);
+  assertEqual(sched.records.length, 2, "both events scheduled");
+  sched.fire(0);
+  sched.fire(1);
+  assertEqual(fired.length, 2, "both events fired");
+
+  // Audio ends, source restarts at 0 — backward jump of ~20 s,
+  // well past the 5 s threshold. Auto-reset triggers.
+  h.step(0, 30000);
+
+  // Re-walk through the events; they must fire again this time.
+  h.step(9900, 30100);
+  h.step(19900, 40100);
+  // Two new schedules (records[2] and records[3]).
+  assertEqual(sched.records.length, 4, "events re-scheduled on replay");
+  assertEqual(sched.records[2].cancelled, false);
+  assertEqual(sched.records[3].cancelled, false);
+  sched.fire(2);
+  sched.fire(3);
+  assertEqual(fired.length, 4, "both events fired again");
+});
+
+test("HapticsEventManager: small backward drift does NOT trigger auto-replay", () => {
+  // Real-world matcher position estimates jitter a few hundred ms
+  // backward and forward as it re-locks. Only large drops (here
+  // > 5 s) should be interpreted as a restart.
+  const events = [{ time_ms: 1000, type: "cannon" }];
+  const { h, fired, sched } = makeHaptics(events, { predictionOffsetMs: 0 });
+  h.step(900, 0);
+  sched.fire(0);
+  assertEqual(fired.length, 1);
+
+  // Matcher reports 800 ms (200 ms back) — well under the 5 s threshold.
+  h.step(800, 100);
+  // No new schedule for the event that already fired.
+  assertEqual(sched.records.length, 1, "no auto-reset on small jitter");
+  assertEqual(fired.length, 1, "no re-fire");
+});
+
 
 // -----------------------------------------------------------------------
 // Summary

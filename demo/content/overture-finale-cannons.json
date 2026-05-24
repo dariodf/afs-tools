@@ -1,17 +1,16 @@
 {
-  "_comment": "Hand-annotated cannon timings for the 1812 Overture finale clip. Replace these placeholder times with real timings after clipping overture-finale.mp3. Listen to the clip and note each cannon hit; typical finales have 6-8 cannon events.",
-"events": [
-  { "time_ms": 15676, "type": "cannon", "label": "Cannon 1" },
-  { "time_ms": 17336, "type": "cannon", "label": "Cannon 2" },
-  { "time_ms": 20302, "type": "cannon", "label": "Cannon 3" },
-  { "time_ms": 22763, "type": "cannon", "label": "Cannon 4" },
-  { "time_ms": 24923, "type": "cannon", "label": "Cannon 5" },
-  { "time_ms": 26439, "type": "cannon", "label": "Cannon 6" },
-  { "time_ms": 27692, "type": "cannon", "label": "Cannon 7" },
-  { "time_ms": 29324, "type": "cannon", "label": "Cannon 8" },
-  { "time_ms": 32013, "type": "cannon", "label": "Cannon 9" },
-  { "time_ms": 34596, "type": "cannon", "label": "Cannon 10" },
-  { "time_ms": 37804, "type": "cannon", "label": "Cannon 11" },
-  { "time_ms": 38532, "type": "cannon", "label": "Cannon 12" }
-]
+  "_comment": "Audible cannon firing times in the mixed audio, written by tools/cannon-mix. Each time_ms is the moment a listener hears the boom peak. The corresponding cannon-shot.mp4 video should be started VIDEO_PREFIRE_MS earlier so its visible firing aligns with the boom.",
+  "events": [
+    { "time_ms": 15154, "type": "cannon", "label": "Cannon 1" },
+    { "time_ms": 17525, "type": "cannon", "label": "Cannon 2" },
+    { "time_ms": 20340, "type": "cannon", "label": "Cannon 3" },
+    { "time_ms": 22355, "type": "cannon", "label": "Cannon 4" },
+    { "time_ms": 26156, "type": "cannon", "label": "Cannon 5" },
+    { "time_ms": 27457, "type": "cannon", "label": "Cannon 6" },
+    { "time_ms": 31680, "type": "cannon", "label": "Cannon 7" },
+    { "time_ms": 34297, "type": "cannon", "label": "Cannon 8" },
+    { "time_ms": 37506, "type": "cannon", "label": "Cannon 9" },
+    { "time_ms": 67788, "type": "cannon", "label": "Cannon 10" },
+    { "time_ms": 70960, "type": "cannon", "label": "Cannon 11" }
+  ]
 }

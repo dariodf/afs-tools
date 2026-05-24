@@ -1,0 +1,289 @@
+#!/usr/bin/env bash
+# cannon-mix: detect cannon transients in a 1812 finale audio file
+# and overlay a real cannon SFX at each detected moment. Outputs
+# an enhanced audio file (Tchaikovsky's score's intended cannons,
+# but loud + recognizable instead of buried in the orchestra) and
+# optionally a JSON of detected event timings.
+#
+# How detection works:
+#   1. Bandpass-filter the source to 50-150 Hz (the band where
+#      real cannons sit; orchestra has comparatively little
+#      energy here).
+#   2. Run ffmpeg `silencedetect` on that filtered signal. Each
+#      silence_end timestamp marks where bandpass energy crossed
+#      back above the threshold — i.e., a cannon onset.
+#   3. Filter detected events by a minimum gap (real cannons are
+#      ~0.6+ s apart; closer spacings are usually reflections
+#      or detection noise).
+#   4. Optionally cap the count to keep only the top N loudest
+#      events (re-measuring each candidate's peak amplitude on
+#      the original audio).
+#
+# The mix step uses ffmpeg's filter_complex with one adelay'd
+# copy of the cannon SFX per detected onset.
+#
+# Usage:
+#   tools/cannon-mix [OPTIONS] <source-audio> <output-audio>
+#
+# Options:
+#   --cannon PATH     Path to cannon SFX clip (default:
+#                     demo/content/cannon-shot.mp4)
+#   --json PATH       Write detected timestamps as
+#                     overture-finale-cannons.json-format JSON
+#   --threshold DB    silencedetect noise threshold for the
+#                     bandpassed signal (default: -28dB). More
+#                     negative = pickier (fewer false positives).
+#   --min-gap SEC     Minimum gap between detected events
+#                     (default: 0.6). Shorter = more events.
+#   --cannon-gain N   Volume scale applied to each cannon copy
+#                     before mixing (default: 0.7). 1.0 = full
+#                     scale; lower to leave headroom.
+#   --lead-ms N       Start each cannon copy N ms BEFORE the
+#                     detected onset (default: 30). With fuse-
+#                     trimming on, the cannon clip effectively
+#                     starts with the crack — so lead is just a
+#                     small ear-correction for "feels right."
+#   --fuse-trim-ms N  Trim N ms from the head of the cannon clip
+#                     (default: 180). The Fort Snelling recording
+#                     has ~180 ms of pre-firing fuse/silence
+#                     before the crack. In a concert performance
+#                     the cannon is in the orchestra pit; there's
+#                     no audible fuse — you just hear the boom.
+#                     0 = keep the full clip including fuse.
+#   --max-count N     Cap detected events to this many strongest.
+#                     0 = no cap (default: 0).
+#   --dry-run         Detect and print timestamps; don't mix.
+#   -v, --verbose     Echo ffmpeg invocations.
+#
+# Examples:
+#   tools/cannon-mix demo/content/overture-finale.mp3 /tmp/with-cannons.mp3
+#   tools/cannon-mix --json out.json --max-count 8 in.mp3 out.mp3
+#   tools/cannon-mix --dry-run --threshold -32dB in.mp3 /dev/null
+
+set -euo pipefail
+
+# ---------- Defaults ----------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+CANNON="$REPO_ROOT/demo/content/cannon-shot.mp4"
+JSON_PATH=""
+THRESHOLD="-14dB"
+MIN_GAP="0.5"
+CANNON_GAIN="0.7"
+# VIDEO_PREFIRE_MS = the duration of the cannon clip's muted
+# leading section, intrinsic to the asset. cannon-shot.mp4 was
+# authored with 480 ms of leading silence so the first audible
+# sample IS the boom peak. We always offset adelay by this much;
+# it's not a user knob.
+VIDEO_PREFIRE_MS=480
+# LEAD_MS = how much EARLIER than the detected onset the
+# AUDIBLE boom should land. 40 ms feels right by ear ("move it
+# 40 ms earlier" — direct user preference). 0 = boom on the
+# onset; positive = boom before the onset.
+LEAD_MS=40
+FUSE_TRIM_MS=0
+MAX_COUNT=0
+DRY_RUN=0
+VERBOSE=0
+SOURCE=""
+OUTPUT=""
+
+usage() {
+  sed -n 's/^# \?//;1,/^$/p' "$0" | tail -n +2
+}
+
+# ---------- Argument parsing ----------
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --cannon)       CANNON="$2"; shift 2;;
+    --json)         JSON_PATH="$2"; shift 2;;
+    --threshold)    THRESHOLD="$2"; shift 2;;
+    --min-gap)      MIN_GAP="$2"; shift 2;;
+    --cannon-gain)  CANNON_GAIN="$2"; shift 2;;
+    --lead-ms)      LEAD_MS="$2"; shift 2;;
+    --fuse-trim-ms) FUSE_TRIM_MS="$2"; shift 2;;
+    --max-count)    MAX_COUNT="$2"; shift 2;;
+    --dry-run)      DRY_RUN=1; shift;;
+    -v|--verbose)   VERBOSE=1; shift;;
+    -h|--help)      usage; exit 0;;
+    -*)             echo "cannon-mix: unknown option '$1'" >&2; exit 1;;
+    *)
+      if [[ -z "$SOURCE" ]]; then SOURCE="$1"
+      elif [[ -z "$OUTPUT" ]]; then OUTPUT="$1"
+      else echo "cannon-mix: too many positional arguments" >&2; exit 1
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$SOURCE" ]]; then
+  echo "cannon-mix: no source audio specified" >&2
+  usage >&2
+  exit 1
+fi
+if [[ ! -f "$SOURCE" ]]; then
+  echo "cannon-mix: source not found: $SOURCE" >&2
+  exit 1
+fi
+if [[ $DRY_RUN -eq 0 ]] && [[ -z "$OUTPUT" ]]; then
+  echo "cannon-mix: output path required (or use --dry-run)" >&2
+  exit 1
+fi
+if [[ $DRY_RUN -eq 0 ]] && [[ ! -f "$CANNON" ]]; then
+  echo "cannon-mix: cannon SFX not found: $CANNON" >&2
+  exit 1
+fi
+
+for cmd in ffmpeg awk sort; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "cannon-mix: required tool not found: $cmd" >&2
+    exit 1
+  fi
+done
+
+run() {
+  if [[ $VERBOSE -eq 1 ]]; then
+    echo "+ $*" >&2
+  fi
+  "$@"
+}
+
+# ---------- Step 1+2: detect onsets ----------
+echo "cannon-mix: detecting onsets in $(basename "$SOURCE")…" >&2
+echo "  bandpass 50-150 Hz · threshold $THRESHOLD · min-gap ${MIN_GAP}s" >&2
+
+# silencedetect emits lines like
+#   [silencedetect @ 0x...] silence_start: 0
+#   [silencedetect @ 0x...] silence_end: 18.214 | silence_duration: 18.214
+# silence_end timestamps mark onsets.
+DETECTED=$(
+  ffmpeg -hide_banner -v info -i "$SOURCE" \
+    -af "highpass=f=50,lowpass=f=150,silencedetect=noise=${THRESHOLD}:d=${MIN_GAP}" \
+    -f null - 2>&1 \
+  | awk -F'silence_end: ' '/silence_end:/ { split($2, a, " "); print a[1] }' \
+  | sort -g
+)
+
+if [[ -z "$DETECTED" ]]; then
+  echo "cannon-mix: no onsets detected. Try lowering --threshold (e.g. -32dB)." >&2
+  exit 2
+fi
+
+# ---------- Step 3: filter by min-gap (silencedetect already
+# does this via the d= option, but a second pass guards against
+# very-close events that crossed the band briefly twice).
+FILTERED=$(echo "$DETECTED" | awk -v gap="$MIN_GAP" '
+  NR == 1 { print; last = $1; next }
+  { if ($1 - last >= gap) { print; last = $1 } }
+')
+
+# ---------- Step 4: cap to top N by amplitude in the original ----------
+if [[ "$MAX_COUNT" -gt 0 ]]; then
+  echo "cannon-mix: scoring candidates by original-signal peak amplitude…" >&2
+  # Build a per-candidate peak score: trim a 0.2 s window around each
+  # onset, measure peak. ffmpeg per-call is slow but the candidate list
+  # is small.
+  SCORED=""
+  while IFS= read -r ts; do
+    [[ -z "$ts" ]] && continue
+    PEAK=$(
+      ffmpeg -hide_banner -v error \
+        -ss "$ts" -t 0.2 -i "$SOURCE" \
+        -af "volumedetect" -f null - 2>&1 \
+      | awk '/max_volume:/ { print $5 }'
+    )
+    SCORED+="$PEAK $ts"$'\n'
+  done <<<"$FILTERED"
+  FILTERED=$(
+    echo "$SCORED" \
+      | sort -g \
+      | head -n "$MAX_COUNT" \
+      | awk '{ print $2 }' \
+      | sort -g
+  )
+fi
+
+COUNT=$(printf '%s\n' "$FILTERED" | grep -c '.' || true)
+echo "cannon-mix: $COUNT events detected:" >&2
+echo "$FILTERED" | awk '{ printf "  %.3fs\n", $1 }' >&2
+
+# ---------- Optional JSON output ----------
+if [[ -n "$JSON_PATH" ]]; then
+  # Write the JSON with the AUDIBLE cannon times in the OUTPUT
+  # mix — i.e., where each cannon's crack lands after lead
+  # compensation. This is the right ground truth for any consumer
+  # (haptics manager, subtitle timing, etc.) that needs to fire
+  # in sync with what the listener hears.
+  {
+    echo '{'
+    echo '  "_comment": "Audible cannon firing times in the mixed audio, written by tools/cannon-mix. Each time_ms is the moment a listener hears the boom peak. The corresponding cannon-shot.mp4 video should be started VIDEO_PREFIRE_MS earlier so its visible firing aligns with the boom.",'
+    echo '  "events": ['
+    awk -v count="$COUNT" -v lead="$LEAD_MS" '
+      {
+        ms = int($1 * 1000 + 0.5) - lead
+        if (ms < 0) ms = 0
+        sep = (NR == count) ? "" : ","
+        printf "    { \"time_ms\": %d, \"type\": \"cannon\", \"label\": \"Cannon %d\" }%s\n", ms, NR, sep
+      }' <<<"$FILTERED"
+    echo '  ]'
+    echo '}'
+  } > "$JSON_PATH"
+  echo "cannon-mix: wrote $JSON_PATH ($COUNT events; audible times = detected − ${LEAD_MS}ms)" >&2
+fi
+
+if [[ $DRY_RUN -eq 1 ]]; then
+  exit 0
+fi
+
+# ---------- Step 5: build mix filter_complex ----------
+# We split the cannon SFX into N streams, adelay each to its
+# corresponding cannon onset, then amix everything (original
+# music + N delayed cannons) without amix's default
+# divide-by-input-count normalization.
+COPIES=$(echo "$FILTERED" | wc -l | awk '{print $1}')
+SPLIT_LABELS=""
+DELAY_FILTERS=""
+MIX_LABELS="[0:a]"
+FUSE_TRIM_S=$(awk -v m="$FUSE_TRIM_MS" 'BEGIN { printf "%.4f", m / 1000.0 }')
+i=0
+while IFS= read -r ts; do
+  [[ -z "$ts" ]] && continue
+  i=$((i + 1))
+  # adelay places the START of the cannon stream at this many
+  # ms in the output. The cannon clip has VIDEO_PREFIRE_MS of
+  # silent leading content before its boom; subtract that on
+  # top of the user-facing LEAD_MS so the AUDIBLE boom lands at
+  # (detected_onset − LEAD_MS).
+  ms=$(awk -v t="$ts" -v lead="$LEAD_MS" -v pre="$VIDEO_PREFIRE_MS" 'BEGIN { printf "%d", t * 1000 - lead - pre + 0.5 }')
+  SPLIT_LABELS+="[c$i]"
+  if [[ "$ms" -ge 0 ]]; then
+    DELAY_FILTERS+="[c$i]atrim=start=${FUSE_TRIM_S},asetpts=PTS-STARTPTS,adelay=${ms}|${ms},volume=${CANNON_GAIN}[d$i];"
+  else
+    # Onset earlier than lead — eat additional |ms| of the
+    # cannon's head so the peak still lands at output t=0.
+    extra=$(awk -v m="$ms" 'BEGIN { printf "%.4f", -m / 1000.0 }')
+    trim_s=$(awk -v a="$FUSE_TRIM_S" -v b="$extra" 'BEGIN { printf "%.4f", a + b }')
+    DELAY_FILTERS+="[c$i]atrim=start=${trim_s},asetpts=PTS-STARTPTS,volume=${CANNON_GAIN}[d$i];"
+  fi
+  MIX_LABELS+="[d$i]"
+done <<<"$FILTERED"
+
+FILTER_COMPLEX="[1:a]asplit=${COPIES}${SPLIT_LABELS};${DELAY_FILTERS}${MIX_LABELS}amix=inputs=$((COPIES + 1)):duration=first:normalize=0[out]"
+
+# ---------- Step 6: render ----------
+echo "cannon-mix: mixing → $OUTPUT" >&2
+run ffmpeg -y -hide_banner -loglevel warning \
+  -i "$SOURCE" \
+  -i "$CANNON" \
+  -filter_complex "$FILTER_COMPLEX" \
+  -map "[out]" \
+  -c:a libmp3lame -b:a 192k \
+  "$OUTPUT"
+
+echo "cannon-mix: done." >&2
+
+# Tail: peak/mean of the result so the user can sanity-check
+# loudness without re-running ffprobe by hand.
+ffmpeg -hide_banner -v error -i "$OUTPUT" -af "volumedetect" -f null - 2>&1 \
+  | awk '/(mean|max)_volume:/ { print "  " $0 }' >&2

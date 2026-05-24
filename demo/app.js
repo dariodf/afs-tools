@@ -462,7 +462,7 @@ async function startHapticsDemo() {
     </div>
     <div class="haptics-stage">
       <audio id="demo-audio" controls preload="metadata"></audio>
-      <p class="haptics-instructions">Press play. The cannon flashes on each detected hit; on a phone the device also vibrates.</p>
+      <p class="haptics-instructions">Press play. Cannons fire as Tchaikovsky intended.</p>
       <video id="cannon-video" class="cannon-video inline" muted playsinline preload="auto"></video>
       <details class="cannon-annotator">
         <summary>Annotate cannon timings</summary>
@@ -487,6 +487,20 @@ async function startHapticsDemo() {
   audioEl.src = "content/overture-finale.mp3";
   const cannonVideo = document.getElementById("cannon-video");
   cannonVideo.src = "content/cannon-shot.mp4";
+
+  // When the audio reaches its natural end, reset the haptics
+  // manager's `fired` set + clear the cannon visual. Without this,
+  // pressing play again replays the audio but every event is
+  // already in `fired` and no cannons would fire.
+  audioEl.addEventListener("ended", () => {
+    if (haptics) haptics.reset();
+    cannonVideo.classList.remove("showing");
+    cannonVideo.pause();
+  });
+  // Same on seek-to-start so the user can scrub back and re-trigger.
+  audioEl.addEventListener("seeked", () => {
+    if (audioEl.currentTime < 0.5 && haptics) haptics.reset();
+  });
 
   // -------- Annotator: hand-mark cannon timestamps as the audio plays --
   setupCannonAnnotator(audioEl);
@@ -527,7 +541,7 @@ async function startHapticsDemo() {
   // Pre-calc mode: cannons are scheduled from cannon-events JSON
   // against the audio element's currentTime. No matcher, no AFS.
   async function startPrecalcMode() {
-    setModeDetail(`${events.length} pre-annotated cannon events`);
+    setModeDetail("");
     haptics = new HapticsEventManager(
       events,
       () => fireCannon(cannonVideo),
@@ -545,7 +559,7 @@ async function startHapticsDemo() {
   // adaptive offset compensation tunes the schedule-ahead lead time
   // from observed lag against audioEl.currentTime.
   async function startListenMode() {
-    setModeDetail("matcher running against source AFS");
+    setModeDetail("");
     const offsetOverride = new URLSearchParams(window.location.search).get(
       "offset",
     );
@@ -755,7 +769,11 @@ function fireCannon(videoEl) {
 
   videoEl.classList.add("showing");
   try {
-    videoEl.currentTime = 0;
+    // Skip past the cannon-shot.mp4's 480 ms of pre-firing buildup
+    // straight to the visible firing frame. The JSON we ship has
+    // *audible* firing times; if we played the video from t=0 the
+    // visible flash would land ~480 ms after the audible boom.
+    videoEl.currentTime = 0.48;
     const playPromise = videoEl.play();
     if (playPromise) playPromise.catch(() => {});
   } catch {}
@@ -764,9 +782,9 @@ function fireCannon(videoEl) {
     videoEl.removeEventListener("ended", onEnded);
   };
   videoEl.addEventListener("ended", onEnded);
-  // Safety hide that covers the clip's duration in case "ended"
-  // doesn't fire (some mobile browsers).
-  setTimeout(() => videoEl.classList.remove("showing"), 2500);
+  // Safety hide that covers the clip's audible duration (~1.9 s
+  // from currentTime=0.48 to end-of-clip).
+  setTimeout(() => videoEl.classList.remove("showing"), 2000);
 }
 
 // -----------------------------------------------------------------------
