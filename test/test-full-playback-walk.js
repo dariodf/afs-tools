@@ -65,7 +65,9 @@ const STABLE_LOOKBACK_SEC = 5;
 // regressions even if no individual stable tick fails).
 const MIN_TRACKING_RATIO = 0.75;
 
-// Edited clip construction (see demo/content/MEDIA-CHOICES.md):
+// Edited clip construction (matches the ffmpeg recipe in
+// demo/content/README.md): three 2-second cuts in the first
+// 20 seconds, then the source plays through unchanged.
 //   edited 0-5  → source 0-5
 //   edited 5-10 → source 7-12   (cut at edited 5; removed source 5-7)
 //   edited 10-14→ source 14-18  (cut at edited 10; removed source 12-14)

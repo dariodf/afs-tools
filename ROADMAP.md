@@ -128,11 +128,7 @@ v0.2 — not a parallel option.
   least a known floor. Landmark's behavior with N=1 or N=2 hashes is
   worth pre-validating before commitment.
 
-### Estimated effort
-
-Best case (vendoring works, spec is straightforward): **2-3 days of focused
-work** for a working v0.2 demo. Worst case (rewriting the algorithm + new
-matcher infrastructure from scratch): **a week**.
+### Derisking step
 
 The biggest derisking step is **try the vendored TS implementation first**.
 If it produces sensible landmarks on `overture-finale.mp3` after one
@@ -178,16 +174,15 @@ inside the browser with no out-of-band file transfer at all.
    reassemble base64 → unzip → set the AFS + SRT as the loaded
    pair → transition to listen mode.
 
-### Effort estimate
+### Implementation choices
 
-- **Simple sequential version:** ~1.5 days of focused work.
-  Scanner needs to catch one full animation cycle in order;
-  good enough for content under ~50 KB total zipped.
-- **Fountain-coded (LT codes) version:** ~3 days. Scanner can
-  miss frames and still reconstruct from any sufficient subset.
-  More robust but the LT decoder is ~150 LOC.
+- **Simple sequential frames** vs **fountain codes (LT)**.
+  Sequential is simpler; the scanner just needs to catch one full
+  animation cycle in order. Fountain coding lets the scanner miss
+  arbitrary frames and still reconstruct, at the cost of a ~150
+  LOC decoder.
 
-Add two vendored deps (NOTICE entries each):
+Two vendored deps will be needed (NOTICE entries each):
 - A zip lib like `fflate` (~30 KB, MIT)
 - `jsQR` (~100 KB, MIT)
 
@@ -221,6 +216,6 @@ expect ~M seconds of scanning") sets honest expectations.
 
 ### Recommended path when picked up
 
-Start with the simple-sequential version (1.5 days), ship it,
-see how people actually use it. Add fountain coding only if
-dropped-frame failure becomes a real complaint.
+Start with the simple-sequential version, ship it, see how people
+actually use it. Add fountain coding only if dropped-frame failure
+becomes a real complaint.

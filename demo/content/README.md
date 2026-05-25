@@ -7,9 +7,6 @@ listed below using the `fetch-content.sh` script.
 
 The small files (`.afs`, `.srt`, `.json`) are committed.
 
-See [MEDIA-CHOICES.md](MEDIA-CHOICES.md) for the reasoning behind
-*which* content the demo uses (this file covers *what* and *how*).
-
 ## Sources
 
 ### dialogue-clip (Blender's Tears of Steel)
@@ -33,7 +30,7 @@ ffmpeg -i tearsofsteel.mp4 -ss 180 -to 270 -c copy dialogue-clip.mp4
 # Trim the corresponding SRT window manually or with subtitle editor
 
 # Generate the AFS
-../../tools/afs-generate --title "Tears of Steel (excerpt)" \
+../../tools/afs-generate/afs-generate --title "Tears of Steel (excerpt)" \
   --year 2012 --language en dialogue-clip.mp4
 
 # Generate the shifted SRT
@@ -53,7 +50,7 @@ ffmpeg -i dialogue-clip.mp4 -filter_complex "
   [a1][a2][a3][a4]concat=n=4:v=0:a=1[a]" \
   -map "[v]" -map "[a]" dialogue-clip-edited.mp4
 
-../../tools/afs-generate --title "Tears of Steel (edited)" \
+../../tools/afs-generate/afs-generate --title "Tears of Steel (edited)" \
   --year 2012 --language en dialogue-clip-edited.mp4
 ```
 
@@ -84,7 +81,7 @@ ffmpeg -i overture-full.mp3 -ss FINALE_START -to FINALE_END -c copy overture-fin
 ./cannon-mix overture-finale-raw.mp3 cannon-shot.mp4
 
 # Generate the AFS for the mixed audio
-../../tools/afs-generate --title "1812 Overture (finale)" \
+../../tools/afs-generate/afs-generate --title "1812 Overture (finale)" \
   --language en overture-finale.mp3
 # Note: language tag is "en" by convention; the piece has no spoken language.
 
@@ -120,21 +117,21 @@ curl -L -o silent-night.mp3 \
 
 # Auto-generate timed lyrics + AFS in one step using WhisperX.
 # (Requires .venv-whisperx — see ../../tools/README.md.)
-../../tools/transcribe-generate --language en silent-night.mp3
+../../tools/transcribe-generate/transcribe-generate --language en silent-night.mp3
 # → silent-night.srt  (timings good, text needs review)
 # → silent-night.afs  (final)
 
 # Open silent-night.srt and replace WhisperX's text with the canonical
-# John F. Young (1859) English lyrics, keeping WhisperX's timings. The
-# choir's first verse + a triple-repeat of "Sleep in heavenly peace"
-# is what the demo expects to find. See MEDIA-CHOICES.md for the
-# rationale and a snapshot of the final SRT.
+# John F. Young (1859) English lyrics, keeping WhisperX's timings.
+# The choir's first verse + a triple-repeat of "Sleep in heavenly
+# peace" is what the demo expects to find.
 ```
 
-Per the rationale in [MEDIA-CHOICES.md](MEDIA-CHOICES.md), expect
-WhisperX to mishear softly-sung opening words ("Silent" → "High and")
-and to skip the archaic "Round yon" before "Virgin Mother." Keep
-the *timings* WhisperX produces, replace the *text*.
+Expect WhisperX to mishear softly-sung opening words ("Silent" →
+"High and") and to skip the archaic "Round yon" before "Virgin
+Mother." Keep the *timings* WhisperX produces, replace the *text*.
+The committed `silent-night.srt` shows what the corrected pair
+looks like.
 
 ## Licensing notes
 

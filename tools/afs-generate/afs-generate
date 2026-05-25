@@ -100,9 +100,10 @@ if [[ $SKIP_SHA256 -eq 0 ]]; then
   fi
 fi
 
-# Find the afs-format script in the same directory.
+# Find the sibling afs-format script (one directory up, then into
+# the afs-format dir — tools/<name>/<name> layout).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-AFS_FORMAT="$SCRIPT_DIR/afs-format"
+AFS_FORMAT="$SCRIPT_DIR/../afs-format/afs-format"
 if [[ ! -x "$AFS_FORMAT" ]]; then
   echo "afs-generate: afs-format not found or not executable at $AFS_FORMAT" >&2
   exit 1

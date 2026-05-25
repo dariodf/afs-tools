@@ -75,9 +75,10 @@ fi
 # Domain, US federal-government work). 1:55 choral recording used by
 # the karaoke demo. Used directly as silent-night.mp3 (no further
 # trimming). Pipeline (see README.md):
-#   - tools/transcribe-generate produces silent-night.srt (WhisperX)
+#   - tools/transcribe-generate/transcribe-generate produces silent-night.srt
+#     (WhisperX)
 #   - SRT is hand-corrected to canonical John F. Young (1859) lyrics
-#   - tools/afs-generate produces silent-night.afs
+#   - tools/afs-generate/afs-generate produces silent-night.afs
 if [[ ! -f silent-night.mp3 ]]; then
   echo "  fetching Silent Night (USAF Singing Sergeants, ~6.5MB)..."
   curl -L -o silent-night.mp3 \
@@ -90,6 +91,6 @@ fi
 echo ""
 echo "Done. Next steps:"
 echo "  1. Follow the trimming/clipping instructions in README.md."
-echo "  2. Run ../../tools/afs-generate (or transcribe-generate)"
+echo "  2. Run ../../tools/afs-generate/afs-generate (or transcribe-generate)"
 echo "     on each clip to produce .afs / .srt files."
 echo "  3. Hand-annotate overture-finale-cannons.json by listening."

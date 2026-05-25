@@ -1,21 +1,25 @@
 # AFS Tools
 
-Reference implementation and demo for [AFS — Audio Fingerprint Sync](https://github.com/dariodf/afs).
+Reference implementation and demo for [AFS — Audio Fingerprint
+Sync](https://github.com/dariodf/afs).
 
 ## What's here
 
 ```
 afs-tools/
-├── tools/                     # CLI generator scripts (bash)
-│   ├── afs-generate           # Media file → .afs (uses ffmpeg + fpcalc + afs-format)
-│   ├── afs-format             # fpcalc output → AFS v0.1 format
-│   └── transcribe-generate    # Media → .srt + .afs (uses WhisperX + afs-generate)
-├── demo/                      # Browser-based AFS player and demos
-│   ├── index.html             # Three demos: subtitles, karaoke, haptics + your-own-files
-│   ├── app.js                 # UI orchestration
+├── tools/                       # Bash CLIs, one folder per tool
+│   ├── afs-format/              # fpcalc raw output → AFS v0.1
+│   ├── afs-generate/            # media file → AFS
+│   ├── afs-minimize/            # drop AFS hashes outside subtitle windows
+│   └── transcribe-generate/     # media → SRT + AFS (uses WhisperX)
+├── demo/                        # Browser-based AFS player and demos
+│   ├── index.html               # Subtitles, Karaoke, Haptics tabs
+│   ├── generate.html            # Browser-side AFS generator
+│   ├── listen.html              # Standalone mic-mode listener
+│   ├── app.js
 │   ├── style.css
-│   └── src/                   # Reusable modules (parser, matcher, capture, etc.)
-└── test/                      # Test runner and tests
+│   └── src/                     # Reusable modules (parser, matcher, capture, etc.)
+└── test/                        # Test runner and tests
 ```
 
 ## Quick start
@@ -24,25 +28,9 @@ afs-tools/
 
 ```bash
 # Requires ffmpeg and fpcalc (from chromaprint) on PATH.
-./tools/afs-generate movie.mp4
+./tools/afs-generate/afs-generate movie.mp4
 # Produces movie.afs
 ```
-
-### Generate an AFS + time-aligned SRT in one step
-
-For new demo content (subtitles, karaoke, etc.):
-
-```bash
-# Requires WhisperX in a local virtualenv (see tools/README.md).
-./tools/transcribe-generate movie.mp4
-# Produces movie.srt and movie.afs
-```
-
-The script transcribes the audio with [WhisperX](https://github.com/m-bain/whisperX)
-for word-level timings, then runs `afs-generate` for the fingerprint
-stream. Works for both speech (excellent) and singing (good timings,
-expect to hand-edit the text). See `tools/README.md` for the full
-workflow.
 
 ### Run the demo locally
 
@@ -62,27 +50,7 @@ Then open <http://localhost:8000> in a browser. For microphone access
 on most browsers, `localhost` is treated as a secure context; deployed
 versions require HTTPS.
 
-### Deploy to GitHub Pages
-
-A GitHub Actions workflow (`.github/workflows/deploy-pages.yml`)
-deploys the demo to GitHub Pages automatically on push to `main`. It
-runs the test suite first; if tests fail, the deploy is blocked.
-
-To set up Pages for your fork: in repo settings → Pages, set "Source"
-to "GitHub Actions". The next push to main will trigger a build and
-publish the demo at `https://<username>.github.io/afs-tools/`.
-
-### Run the tests
-
-```bash
-node test/test-runner.js
-```
-
-The test suite covers the AFS parser, matcher (offset-locked
-rendering, cut consistency, mic/direct capture, drift over long
-sources), SRT parser, writer, and the haptics event scheduler.
-
-### Use the listen page with your own files
+## Use the listen page with your own files
 
 `demo/listen.html` is a self-contained AFS player: open it in a
 browser, point it at an AFS + SRT pair, and a second device's
@@ -113,11 +81,11 @@ uploads.
 different origin than the page is hosted on, your file server must
 return `Access-Control-Allow-Origin` headers permitting the page's
 origin. GitHub Pages, Netlify, Vercel, and most public S3 buckets
-do this by default. Private servers or strict CDN setups may
-block the fetch with a CORS error — that's on the file host to
-configure, not on the player.
+do this by default. Private servers or strict CDN setups may block
+the fetch with a CORS error — that's on the file host to configure,
+not on the player.
 
-### AFS file size and HTTP compression
+## AFS file size and HTTP compression
 
 AFS files are plain text — a TOML header followed by one
 `time_ms <hash>` line per chromaprint frame (~8 per second). Each
@@ -130,39 +98,35 @@ Measured on a 113-minute feature film:
 |---|---|---|---|
 | AFS file | 963 KB | **418 KB (43 %)** | 298 KB (31 %) |
 
-GitHub Pages, Netlify, Vercel, and every modern CDN apply
-gzip (or brotli) on `Content-Encoding` automatically for text
-responses, so a visitor's phone downloads the compressed
-version even though the file on disk looks bigger. A 2-hour
-movie's AFS arrives over the wire as ~300-400 KB — smaller
-than a moderately compressed image.
+GitHub Pages, Netlify, Vercel, and every modern CDN apply gzip (or
+brotli) on `Content-Encoding` automatically for text responses, so
+a visitor's phone downloads the compressed version even though the
+file on disk looks bigger. A 2-hour movie's AFS arrives over the
+wire as ~300-400 KB — smaller than a moderately compressed image.
 
 If you're moving AFS files outside HTTP (AirDrop, email, USB),
 plain `gzip` cuts the file to ~43 % of its raw size with no
-information loss. `tools/afs-minimize` can shave a further few
+information loss. The `afs-minimize` tool can shave a further few
 percent for dialogue-driven content; the win grows substantially
 for *sparse* subtitle content (karaoke, audiobooks with chapter
-breaks). See `tools/README.md`.
+breaks). See [`tools/afs-minimize/`](./tools/afs-minimize/).
 
 ## Status
 
-v0.1 release candidate. The AFS parser, matcher, SRT parser, writer,
-and haptics event scheduler are implemented and tested. CLI tools
-(`afs-format`, `afs-generate`, `transcribe-generate`) are implemented. The browser demo runs three live
-demos (subtitles desync, karaoke, haptics), all driven by real-time
-chromaprint fingerprinting in WebAssembly (via
-`@unimusic/chromaprint`). A companion `listen.html` page works on
-a second device's microphone for cross-device sync.
+v0.1 release candidate. The AFS parser, matcher, SRT parser,
+writer, and haptics event scheduler are implemented and tested.
+The browser demo runs three live demos (subtitles desync, karaoke,
+haptics), all driven by real-time chromaprint fingerprinting in
+WebAssembly (via `@unimusic/chromaprint`). A companion
+`listen.html` page works on a second device's microphone for
+cross-device sync, and a `generate.html` page produces AFS files
+in the browser for your own content.
 
-Known gaps before broader release:
-- Long-form video (1–2 h source AFS) — chromaprint's per-tick
-  matcher cost is O(N) in the source length; verified-on-short-
-  form, longer content pending. See `ROADMAP.md`.
-- A potential v0.2 migration to Shazam-style landmark fingerprinting
-  is documented in `ROADMAP.md` but deferred. v0.1 ships with
-  chromaprint because of its existing ecosystem (libchromaprint,
-  fpcalc, language bindings) — anyone writing a plugin for VLC,
-  mpv, or similar already has a chromaprint library available.
+A potential v0.2 migration to Shazam-style landmark fingerprinting
+is documented in `ROADMAP.md` but deferred. v0.1 ships with
+chromaprint because of its existing ecosystem (libchromaprint,
+fpcalc, language bindings) — anyone writing a plugin for VLC, mpv,
+or similar already has a chromaprint library available.
 
 ## Dependencies
 
@@ -191,22 +155,45 @@ the system zsh still need bash — `brew install bash` for v5) and
 either `sha256sum` (Linux) or `shasum -a 256` (macOS, pre-installed).
 
 We do **not** redistribute `fpcalc`; the script calls whatever
-version is on your `PATH`. The browser demo ships a separate
-WASM build of chromaprint under `demo/vendor/` (see `NOTICE` for
-the LGPL-2.1 attribution and replacement procedure).
+version is on your `PATH`. The browser demo ships a separate WASM
+build of chromaprint under `demo/vendor/` (see `NOTICE` for the
+LGPL-2.1 attribution and replacement procedure).
 
-Optional (only for `tools/transcribe-generate`): Python 3.10–3.12
-plus a local virtualenv with `whisperx`. See `tools/README.md`
-for the setup. Demo visitors never need this.
+Optional (only for `transcribe-generate`): Python 3.10–3.12 plus a
+local virtualenv with `whisperx`. See
+[`tools/transcribe-generate/`](./tools/transcribe-generate/) for
+setup. Demo visitors never need this.
 
 ### Demo (browser side)
 
 - Modern browser with Web Audio API and AudioWorklet support.
 - HTTPS (or `localhost`) for microphone access.
-- The browser uses [`@unimusic/chromaprint`](https://github.com/unimusic-app/unimusic-chromaprint)
+- The browser uses
+  [`@unimusic/chromaprint`](https://github.com/unimusic-app/unimusic-chromaprint)
   (Emscripten WASM build of chromaprint) for in-browser
   fingerprinting. Bundled via `demo/vendor/` by the deploy
   workflow; no install needed by the visitor.
+
+## Tools
+
+The CLI lives under [`tools/`](./tools/). Each tool has its own
+folder with focused docs:
+
+- [`tools/afs-generate/`](./tools/afs-generate/) — media file → AFS.
+  The everyday tool.
+- [`tools/afs-format/`](./tools/afs-format/) — lower-level:
+  `fpcalc -raw` output → AFS. Used by `afs-generate` internally;
+  handy on its own when you already have an fpcalc stream.
+- [`tools/transcribe-generate/`](./tools/transcribe-generate/) —
+  media → time-aligned SRT (via WhisperX) **and** AFS, in one step.
+- [`tools/afs-minimize/`](./tools/afs-minimize/) — drop AFS hashes
+  outside subtitle coverage windows. Useful for sparse-cue content
+  and for distributing AFS files outside HTTP.
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to run tests,
+add content, and submit changes.
 
 ## License
 

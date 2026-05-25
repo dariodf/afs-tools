@@ -98,10 +98,12 @@ if [[ "$DO_SRT" -eq 0 && "$DO_AFS" -eq 0 ]]; then
   exit 1
 fi
 
-# Resolve paths
+# Resolve paths. Tools live at tools/<name>/<name>, so the repo
+# root is two parents up and the sibling afs-generate is at
+# ../afs-generate/afs-generate relative to this script.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-AFS_GENERATE="$SCRIPT_DIR/afs-generate"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+AFS_GENERATE="$SCRIPT_DIR/../afs-generate/afs-generate"
 
 if [[ "$DO_AFS" -eq 1 && ! -x "$AFS_GENERATE" ]]; then
   echo "transcribe-generate: sibling afs-generate script not found or not executable at $AFS_GENERATE" >&2

@@ -26,7 +26,7 @@ import { AFSMatcher } from "../demo/src/afs-matcher.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_DIR = path.resolve(__dirname, "..");
-const TOOL_PATH = path.join(REPO_DIR, "tools", "afs-generate");
+const TOOL_PATH = path.join(REPO_DIR, "tools", "afs-generate", "afs-generate");
 const INPUT_MEDIA = path.resolve(REPO_DIR, "demo/content/dialogue-clip.mp4");
 
 const CHROMAPRINT_HOP_MS = 4096000 / 33075; // ~123.99 ms
@@ -46,7 +46,7 @@ for (const tool of ["fpcalc", "ffmpeg", "bash"]) {
     catch { skip(`${tool} not on PATH`); }
   }
 }
-if (!existsSync(TOOL_PATH)) skip("afs-generate not at tools/afs-generate");
+if (!existsSync(TOOL_PATH)) skip(`afs-generate not at ${TOOL_PATH}`);
 if (!existsSync(INPUT_MEDIA)) skip(`input media missing: ${INPUT_MEDIA}`);
 
 const workDir = mkdtempSync(path.join(tmpdir(), "afs-cli-test-"));

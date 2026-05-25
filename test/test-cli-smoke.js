@@ -74,7 +74,7 @@ function expectOutputContains(result, fragment, label) {
 // afs-format
 // ----------------------------------------------------------------
 
-const AFS_FORMAT = path.join(TOOLS, "afs-format");
+const AFS_FORMAT = path.join(TOOLS, "afs-format", "afs-format");
 
 if (!existsSync(AFS_FORMAT)) {
   console.error(`Skipping: ${AFS_FORMAT} not found`);
@@ -96,7 +96,7 @@ test("afs-format: -h is equivalent to --help", () => {
 // afs-generate
 // ----------------------------------------------------------------
 
-const AFS_GENERATE = path.join(TOOLS, "afs-generate");
+const AFS_GENERATE = path.join(TOOLS, "afs-generate", "afs-generate");
 
 test("afs-generate: --help exits 0 with usage", () => {
   const result = run(AFS_GENERATE, ["--help"]);
@@ -133,7 +133,7 @@ test("afs-generate: unknown option exits non-zero", () => {
 // transcribe-generate
 // ----------------------------------------------------------------
 
-const TRANSCRIBE = path.join(TOOLS, "transcribe-generate");
+const TRANSCRIBE = path.join(TOOLS, "transcribe-generate", "transcribe-generate");
 
 test("transcribe-generate: --help exits 0 with usage", () => {
   const result = run(TRANSCRIBE, ["--help"]);
@@ -228,7 +228,7 @@ test("transcribe-generate: missing WhisperX prints install help", () => {
 // afs-minimize
 // ----------------------------------------------------------------
 
-const MINIMIZE = path.join(TOOLS, "afs-minimize");
+const MINIMIZE = path.join(TOOLS, "afs-minimize", "afs-minimize");
 
 test("afs-minimize: --help exits 0 with usage", () => {
   const result = run(MINIMIZE, ["--help"]);
