@@ -16,17 +16,15 @@
   <header>
     <div class="masthead">
       <div class="masthead-top">
-        <div class="wordmark">
+        <a class="wordmark" href="./">
           <span class="wordmark-sigil" aria-hidden="true">∿</span>
           <span class="wordmark-letters">AFS</span>
-        </div>
+        </a>
         <h1 class="tagline">Sync <em>anything</em> to audio.</h1>
         <nav class="masthead-links" aria-label="Project links">
           <a href="https://github.com/dariodf/afs">Spec</a>
           <span aria-hidden="true">/</span>
           <a href="https://github.com/dariodf/afs-tools">Source</a>
-          <span aria-hidden="true">/</span>
-          <a href="generate.html">Generate</a>
         </nav>
       </div>
       <p class="lede">An open file format that fingerprints audio into a stream of time cues. Any device hearing the source (via microphone or local audio) matches the fingerprints to <em>locate itself</em> and stay in sync in real time.</p>
@@ -34,10 +32,18 @@
   </header>
 
   <main>
-    <nav class="tabs" role="tablist" aria-label="Demo">
-      <button class="tab" role="tab" data-demo="desync-video">Subtitles</button>
-      <button class="tab" role="tab" data-demo="karaoke">Karaoke</button>
-      <button class="tab" role="tab" data-demo="haptics">Haptics</button>
+    <!--
+      Tabs are anchors, not buttons, so middle-click / "open in new
+      tab" / "copy link" all do the obvious thing. The three demo
+      tabs' clicks are intercepted by app.js for in-page transitions;
+      the Generate tab has no data-demo and is left to navigate
+      normally to generate.html.
+    -->
+    <nav class="tabs" aria-label="Demos and tools">
+      <a class="tab" data-demo="desync-video" href="./">Subtitles</a>
+      <a class="tab" data-demo="karaoke" href="?demo=karaoke">Karaoke</a>
+      <a class="tab" data-demo="haptics" href="?demo=haptics">Haptics</a>
+      <a class="tab" href="generate.html">Generate</a>
     </nav>
 
     <section class="status" id="status" aria-live="polite">

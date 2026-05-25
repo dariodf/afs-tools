@@ -178,6 +178,16 @@ header {
   line-height: 0.9;
   letter-spacing: -0.02em;
   font-variation-settings: "opsz" 144, "SOFT" 30;
+  /* The wordmark is now an anchor that links home — kill the
+     default underline + inherit color so it doesn't look like a
+     regular link. */
+  color: inherit;
+  text-decoration: none;
+}
+.wordmark:hover .wordmark-letters {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 6px;
 }
 
 .wordmark-sigil {
@@ -282,6 +292,7 @@ header {
   letter-spacing: -0.005em;
   cursor: pointer;
   white-space: nowrap;
+  text-decoration: none; /* tabs are <a>s — kill the default underline */
   transition: color 120ms ease, border-color 120ms ease;
 }
 
@@ -1064,7 +1075,6 @@ footer > p:first-child {
   margin: 0;
   font-size: 0.8125rem;
   line-height: 1.6;
-  max-width: 64ch;
   color: var(--fg-dim);
 }
 
@@ -1364,117 +1374,6 @@ footer > p:first-child {
   opacity: 0;
 }
 
-/* -----------------------------------------------------------------------
-   Cannon annotator — inline tool for hand-timing cannon events
-   ----------------------------------------------------------------------- */
-
-.cannon-annotator {
-  margin: 0.5rem auto 0;
-  max-width: 480px;
-  width: 100%;
-  font-size: 0.875rem;
-}
-
-.cannon-annotator summary {
-  cursor: pointer;
-  color: var(--fg-dim);
-  padding: 0.25rem 0;
-  user-select: none;
-}
-
-.cannon-annotator[open] summary {
-  color: var(--fg);
-  margin-bottom: 0.5rem;
-}
-
-.annotator-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-
-.annotator-timer {
-  font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace);
-  font-size: 1.125rem;
-  font-variant-numeric: tabular-nums;
-  background: var(--accent-soft);
-  color: var(--fg);
-  padding: 0.25rem 0.625rem;
-  border-radius: 4px;
-  min-width: 6.5rem;
-  text-align: center;
-}
-
-.annotator-btn {
-  font: inherit;
-  padding: 0.35rem 0.75rem;
-  border: 1px solid var(--rule);
-  background: transparent;
-  color: var(--fg);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
-}
-
-.annotator-btn:hover {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-}
-
-.annotator-mark {
-  border-color: var(--accent);
-  font-weight: 500;
-}
-
-.annotator-pulse {
-  background: var(--accent) !important;
-  color: var(--accent-fg, #fff) !important;
-}
-
-.annotator-output {
-  font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace);
-  font-size: 0.8125rem;
-  background: var(--accent-soft);
-  color: var(--fg);
-  padding: 0.625rem 0.75rem;
-  border-radius: 4px;
-  margin: 0;
-  white-space: pre;
-  overflow-x: auto;
-  max-height: 14rem;
-  overflow-y: auto;
-}
-
-.annotator-comp {
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  font-size: 0.8125rem;
-  color: var(--fg-dim);
-  margin: 0 0 0.5rem;
-  flex-wrap: wrap;
-}
-
-.annotator-comp input {
-  font: inherit;
-  font-variant-numeric: tabular-nums;
-  width: 4.5rem;
-  padding: 0.2rem 0.4rem;
-  border: 1px solid var(--rule);
-  border-radius: 3px;
-  background: var(--bg);
-  color: var(--fg);
-}
-
-.annotator-comp-hint {
-  flex: 1 1 100%;
-  font-style: italic;
-  padding-left: 0;
-  color: var(--fg-muted);
-}
-
 /* Subtitle-sync tuner on the listen page. Compact, bottom of the
    stage, only revealed once matching starts. */
 .listen-tune {
@@ -1609,71 +1508,27 @@ footer > p:first-child {
 
 /* -----------------------------------------------------------------------
    Generate page (demo/generate.html)
-   Drag-drop a media file, get an AFS to download. Standalone page;
-   shares the project's type system + colors.
+   Now uses the same masthead / tabs / stage chrome as the demo page;
+   only the widgets inside .player-area are generator-specific.
    ----------------------------------------------------------------------- */
 
-/* HTML's `hidden` attribute defaults to `display: none`, but a rule
-   with an explicit display value (display: flex, etc.) below would
-   otherwise win on specificity. Make `hidden` decisive. */
-.generate-stage [hidden] {
+/* HTML's `hidden` attribute defaults to `display: none`, but rules
+   like `.generate-drop { display: flex }` below would otherwise win
+   on specificity and keep hidden sections visible. */
+.player-area [hidden] {
   display: none !important;
 }
 
-.generate-body {
-  background: var(--bg);
-  color: var(--fg);
-  min-height: 100vh;
-  padding: var(--s-5);
-  font-family: var(--font-body);
-}
-
-.generate-stage {
-  max-width: 44rem;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-6);
-}
-
-.generate-header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-3);
-}
-
-.generate-back {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+/* Intro paragraph above the drop zone — explains what the tool does
+   in one sentence. Lives inside the standard .player-area, so spacing
+   uses the same scale as the demos. */
+.generate-intro {
   color: var(--fg-dim);
-  text-decoration: none;
-  width: max-content;
-}
-.generate-back:hover { color: var(--fg); }
-.generate-back span {
-  border-bottom: 1px dotted currentColor;
-}
-
-.generate-title {
-  font-family: var(--font-display);
-  font-weight: 400;
-  font-size: clamp(1.75rem, 4vw, 2.75rem);
-  line-height: 1.15;
-  margin: 0;
-  letter-spacing: -0.02em;
-  font-variation-settings: "opsz" 60, "SOFT" 60;
-}
-
-.generate-lede {
-  color: var(--fg-dim);
-  max-width: 36rem;
+  max-width: 50ch;
   line-height: 1.55;
   margin: 0;
 }
-
-.generate-lede code {
+.generate-intro code {
   font-family: var(--font-mono);
   font-size: 0.85em;
   padding: 0.05em 0.3em;
@@ -1855,89 +1710,19 @@ footer > p:first-child {
   font-size: 0.9375rem;
 }
 
-/* "On your phone" QR card. Two-column on wider screens (text + QR
-   side by side), stacks on narrow. The QR itself is rendered as
-   SVG by demo/src/vendor/qr-code.js. */
-.generate-qr {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: var(--s-5);
-  align-items: center;
-  padding: var(--s-5);
-  background: var(--bg-elevated);
-  border: 1px solid var(--rule);
-  border-radius: 6px;
-}
-@media (max-width: 36rem) {
-  .generate-qr {
-    grid-template-columns: 1fr;
-    text-align: center;
-    justify-items: center;
-  }
-}
-
-.generate-qr-text {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
-}
-
-.generate-qr-heading {
-  font-family: var(--font-display);
-  font-weight: 500;
-  font-size: 1.25rem;
-  margin: 0;
-  font-variation-settings: "opsz" 30, "SOFT" 40;
-}
-
-.generate-qr-text p {
-  margin: 0;
-  font-size: 0.9375rem;
-  line-height: 1.55;
-  color: var(--fg-dim);
-}
-
-.generate-qr-text code {
-  font-family: var(--font-mono);
-  font-size: 0.85em;
-  padding: 0.05em 0.3em;
-  background: var(--accent-soft);
-  color: var(--accent);
-  border-radius: 3px;
-}
-
-.generate-qr-fallback {
-  font-size: 0.8125rem !important;
-  color: var(--fg-muted) !important;
-}
-.generate-qr-fallback a {
-  color: var(--accent);
-}
-
-.generate-qr-code {
-  width: 180px;
-  height: 180px;
-  background: #fff;
-  padding: var(--s-3);
-  border-radius: 4px;
-  flex-shrink: 0;
-}
-.generate-qr-code svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-.generate-foot {
+/* Small footnote-style paragraph below the generator widgets,
+   inside the player-area. */
+.generate-foot-note {
   color: var(--fg-muted);
   font-size: 0.8125rem;
+  margin: 0;
+  padding-top: var(--s-3);
   border-top: 1px solid var(--rule-soft);
-  padding-top: var(--s-4);
 }
-.generate-foot code {
+.generate-foot-note code {
   font-family: var(--font-mono);
   font-size: 0.85em;
 }
-.generate-foot a {
+.generate-foot-note a {
   color: var(--fg-dim);
 }

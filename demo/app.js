@@ -245,7 +245,7 @@ async function startDesyncVideoDemo() {
         <div class="video-label">Edited · 3 cuts in first 20 s</div>
         <video id="video-edit" controls preload="metadata" playsinline></video>
         <div class="subtitle-track-label">
-          <label><input type="checkbox" id="afs-edit"> Use AFS to correct timing</label>
+          <label><input type="checkbox" id="afs-edit"> Fix the drift with AFS</label>
         </div>
         <div class="subtitle-track" id="sub-edit"></div>
       </div>
@@ -464,22 +464,6 @@ async function startHapticsDemo() {
       <audio id="demo-audio" controls preload="metadata"></audio>
       <p class="haptics-instructions">Press play. Cannons fire <a href="https://en.wikipedia.org/wiki/1812_Overture#Instrumentation" target="_blank" rel="noopener">as Tchaikovsky intended</a>.</p>
       <video id="cannon-video" class="cannon-video inline" muted playsinline preload="auto"></video>
-      <details class="cannon-annotator">
-        <summary>Annotate cannon timings</summary>
-        <div class="annotator-row">
-          <span class="annotator-timer" id="annotator-timer">0:00.000</span>
-          <button class="annotator-btn annotator-mark" id="annotator-mark" type="button">Mark cannon · SPACE</button>
-          <button class="annotator-btn annotator-undo" id="annotator-undo" type="button">Undo</button>
-          <button class="annotator-btn annotator-clear" id="annotator-clear" type="button">Clear</button>
-          <button class="annotator-btn annotator-copy" id="annotator-copy" type="button">Copy JSON</button>
-        </div>
-        <label class="annotator-comp">
-          Tap-reaction comp:
-          <input type="number" id="annotator-comp" value="150" min="0" max="500" step="10">
-          ms <span class="annotator-comp-hint">(subtracted from each mark; humans tap ~150 ms after hearing)</span>
-        </label>
-        <pre class="annotator-output" id="annotator-output">// play the audio, press SPACE on each cannon</pre>
-      </details>
     </div>
   `;
 
@@ -501,9 +485,14 @@ async function startHapticsDemo() {
   audioEl.addEventListener("seeked", () => {
     if (audioEl.currentTime < 0.5 && haptics) haptics.reset();
   });
-
-  // -------- Annotator: hand-mark cannon timestamps as the audio plays --
-  setupCannonAnnotator(audioEl);
+  // If the user pauses mid-cannon, stop the cannon clip too. Otherwise
+  // the muzzle keeps animating after the music has frozen — visually
+  // inconsistent. (The "ended" handler above covers natural end-of-
+  // track; this one covers user pauses.)
+  audioEl.addEventListener("pause", () => {
+    cannonVideo.pause();
+    cannonVideo.classList.remove("showing");
+  });
 
   const events = await fetch("content/overture-finale-cannons.json")
     .then((r) => r.json())
@@ -766,124 +755,6 @@ async function startKaraokeDemo() {
   await switchMode("precalc");
 }
 
-// setupCannonAnnotator: live timer + tap-to-mark UI for hand-
-// timing cannon events against the audio. Output formatted as the
-// `events` array of overture-finale-cannons.json — copyable
-// directly into the file.
-function setupCannonAnnotator(audioEl) {
-  const timerEl = document.getElementById("annotator-timer");
-  const outputEl = document.getElementById("annotator-output");
-  const markBtn = document.getElementById("annotator-mark");
-  const undoBtn = document.getElementById("annotator-undo");
-  const clearBtn = document.getElementById("annotator-clear");
-  const copyBtn = document.getElementById("annotator-copy");
-  if (!timerEl || !outputEl) return;
-
-  const marks = [];
-
-  function formatTime(ms) {
-    const totalSec = ms / 1000;
-    const m = Math.floor(totalSec / 60);
-    const s = Math.floor(totalSec % 60);
-    const milli = Math.floor(ms % 1000);
-    return `${m}:${String(s).padStart(2, "0")}.${String(milli).padStart(3, "0")}`;
-  }
-
-  function render() {
-    if (marks.length === 0) {
-      outputEl.textContent = "// play the audio, press SPACE on each cannon";
-      return;
-    }
-    const lines = marks.map(
-      (ms, i) =>
-        `  { "time_ms": ${ms}, "type": "cannon", "label": "Cannon ${i + 1}" }`,
-    );
-    outputEl.textContent = `"events": [\n${lines.join(",\n")}\n]`;
-  }
-
-  function getCompMs() {
-    const inp = document.getElementById("annotator-comp");
-    const v = inp ? Number(inp.value) : 0;
-    return Number.isFinite(v) && v >= 0 ? v : 0;
-  }
-
-  function mark() {
-    if (audioEl.readyState < 1) return;
-    const ms = Math.max(0, Math.round(audioEl.currentTime * 1000 - getCompMs()));
-    marks.push(ms);
-    render();
-    // Briefly highlight the mark button so the click feels acknowledged.
-    markBtn.classList.add("annotator-pulse");
-    setTimeout(() => markBtn.classList.remove("annotator-pulse"), 120);
-  }
-
-  function undo() {
-    marks.pop();
-    render();
-  }
-
-  function clear() {
-    marks.length = 0;
-    render();
-  }
-
-  async function copy() {
-    if (marks.length === 0) return;
-    try {
-      await navigator.clipboard.writeText(outputEl.textContent);
-      copyBtn.textContent = "Copied!";
-      setTimeout(() => (copyBtn.textContent = "Copy JSON"), 1200);
-    } catch {
-      // Clipboard API failed (older browser / no permission). Select
-      // the output element so the user can Cmd/Ctrl-C themselves.
-      const range = document.createRange();
-      range.selectNodeContents(outputEl);
-      const sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }
-  }
-
-  markBtn.addEventListener("click", mark);
-  undoBtn.addEventListener("click", undo);
-  clearBtn.addEventListener("click", clear);
-  copyBtn.addEventListener("click", copy);
-
-  // SPACE-anywhere shortcut, but stay out of the way when the user
-  // is typing into an input or interacting with the native audio
-  // controls. (The <audio> element doesn't take SPACE focus by
-  // default, so we don't need a special-case for it here.)
-  function onKeydown(e) {
-    if (e.code !== "Space" || e.repeat) return;
-    const t = e.target;
-    if (
-      t &&
-      (t.tagName === "INPUT" ||
-        t.tagName === "TEXTAREA" ||
-        t.isContentEditable)
-    ) {
-      return;
-    }
-    e.preventDefault();
-    mark();
-  }
-  document.addEventListener("keydown", onKeydown);
-
-  // Live timer. requestAnimationFrame keeps it smooth without
-  // burning a setInterval; we just show audioEl.currentTime in the
-  // same format as the JSON it produces.
-  function tick() {
-    if (!document.body.contains(timerEl)) {
-      // Demo switched away; stop the loop and detach the listener.
-      document.removeEventListener("keydown", onKeydown);
-      return;
-    }
-    timerEl.textContent = formatTime(audioEl.currentTime * 1000);
-    requestAnimationFrame(tick);
-  }
-  requestAnimationFrame(tick);
-}
-
 // fireCannon: show the cannon clip silently, vibrate on touch
 // devices, and shake the whole window so desktop visitors get a
 // pseudo-haptic feedback (since they have no vibration motor).
@@ -1022,12 +893,53 @@ function init() {
   // Click on a demo tab: activate it and start it. The click itself
   // is the user gesture browsers require for audio autoplay /
   // getUserMedia, so no separate Start button is needed.
+  //
+  // We also reflect the selection in the URL via history.pushState,
+  // so a deep link like ?demo=karaoke is now copy-pasteable AND
+  // the browser back button walks the demo selection history.
+  // The default demo keeps a clean URL (no param) — only non-defaults
+  // are spelled out, so "/" stays canonical for the landing view.
+  //
+  // Tabs are <a> elements, so we have to preventDefault before the
+  // browser navigates. Modifier-clicks (Cmd/Ctrl, middle-click) skip
+  // the intercept and follow the link normally — that's how middle-
+  // click-opens-new-tab still works on the demo tabs. Tabs without a
+  // data-demo attribute (e.g. "Generate") have no click handler at
+  // all; the browser navigates them normally to their href.
+  const DEFAULT_DEMO = "desync-video";
   for (const btn of state.els.demoBtns) {
-    btn.addEventListener("click", () => {
-      setActiveDemo(btn.dataset.demo);
+    btn.addEventListener("click", (e) => {
+      // Let the browser handle middle-click, modifier-click, etc.
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button === 1) {
+        return;
+      }
+      e.preventDefault();
+      const demoId = btn.dataset.demo;
+      setActiveDemo(demoId);
+      const url = new URL(window.location.href);
+      if (demoId === DEFAULT_DEMO) {
+        url.searchParams.delete("demo");
+      } else {
+        url.searchParams.set("demo", demoId);
+      }
+      // pushState (not replaceState) so back / forward walks the
+      // visitor's demo-selection trail like a sane page.
+      history.pushState({ demo: demoId }, "", url);
       startSelectedDemo();
     });
   }
+
+  // Back / forward: re-honor the URL. URLs without ?demo= go back
+  // to the default. Avoid restarting if the URL says what's already
+  // active (e.g. a hash change on the same page).
+  window.addEventListener("popstate", () => {
+    const params = new URLSearchParams(window.location.search);
+    const next = params.has("demo") ? params.get("demo") : DEFAULT_DEMO;
+    if (state.demoId !== next) {
+      setActiveDemo(next);
+      startSelectedDemo();
+    }
+  });
 
   // The "Open in a new window" link uses window.open with explicit
   // size/position so browsers spawn a real popup window (not a
