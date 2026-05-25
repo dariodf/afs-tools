@@ -1,7 +1,29 @@
 # AFS Tools
 
-Reference implementation and demo for [AFS — Audio Fingerprint
-Sync](https://github.com/dariodf/afs).
+Reference implementation and demo for
+[AFS — Audio Fingerprint Sync](https://github.com/dariodf/afs).
+
+**What AFS does.** AFS fingerprints any audio into a small stream of
+time cues. Any device hearing that audio — through its own speakers,
+or through a microphone listening to another device — matches the
+fingerprints to its current position and stays in sync with the
+source in real time. No network connection between the devices, no
+clock sync, no companion app: just audio.
+
+**What's in this repo.** Three demos that show what that enables:
+
+- **Subtitles** — a 90-second movie clip whose subtitles stay
+  correct even after three short cuts shift the timeline.
+- **Karaoke** — a 1:55 Silent Night recording; open the listen page
+  on your phone and the lyrics appear in sync with whatever device
+  is playing the song.
+- **Haptics** — the 1812 Overture finale; your phone vibrates and
+  flashes a cannon on every cannon hit.
+
+Plus a browser-side **Generate** tool for making your own AFS files
+from media you have locally, a standalone **listen.html** page any
+device can use as a microphone-driven sync player, and a small Bash
+CLI in `tools/`.
 
 ## What's here
 
@@ -13,7 +35,7 @@ afs-tools/
 │   ├── afs-minimize/            # drop AFS hashes outside subtitle windows
 │   └── transcribe-generate/     # media → SRT + AFS (uses WhisperX)
 ├── demo/                        # Browser-based AFS player and demos
-│   ├── index.html               # Subtitles, Karaoke, Haptics tabs
+│   ├── index.html               # Subtitles, Karaoke, Haptics, Generate tabs
 │   ├── generate.html            # Browser-side AFS generator
 │   ├── listen.html              # Standalone mic-mode listener
 │   ├── app.js
@@ -85,32 +107,6 @@ do this by default. Private servers or strict CDN setups may block
 the fetch with a CORS error — that's on the file host to configure,
 not on the player.
 
-## AFS file size and HTTP compression
-
-AFS files are plain text — a TOML header followed by one
-`time_ms <hash>` line per chromaprint frame (~8 per second). Each
-hash is encoded as a decimal integer, so the file has a lot of
-structural redundancy that gzip absorbs easily.
-
-Measured on a 113-minute feature film:
-
-| | Raw | gzip | xz |
-|---|---|---|---|
-| AFS file | 963 KB | **418 KB (43 %)** | 298 KB (31 %) |
-
-GitHub Pages, Netlify, Vercel, and every modern CDN apply gzip (or
-brotli) on `Content-Encoding` automatically for text responses, so
-a visitor's phone downloads the compressed version even though the
-file on disk looks bigger. A 2-hour movie's AFS arrives over the
-wire as ~300-400 KB — smaller than a moderately compressed image.
-
-If you're moving AFS files outside HTTP (AirDrop, email, USB),
-plain `gzip` cuts the file to ~43 % of its raw size with no
-information loss. The `afs-minimize` tool can shave a further few
-percent for dialogue-driven content; the win grows substantially
-for *sparse* subtitle content (karaoke, audiobooks with chapter
-breaks). See [`tools/afs-minimize/`](./tools/afs-minimize/).
-
 ## Status
 
 v0.1 release candidate. The AFS parser, matcher, SRT parser,
@@ -121,6 +117,10 @@ WebAssembly (via `@unimusic/chromaprint`). A companion
 `listen.html` page works on a second device's microphone for
 cross-device sync, and a `generate.html` page produces AFS files
 in the browser for your own content.
+
+AFS files are plain text and gzip-friendly — a 2-hour movie's AFS
+is ~1 MB raw, ~400 KB over `Content-Encoding: gzip` (which every
+modern CDN applies automatically).
 
 A potential v0.2 migration to Shazam-style landmark fingerprinting
 is documented in `ROADMAP.md` but deferred. v0.1 ships with
