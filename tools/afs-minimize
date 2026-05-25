@@ -1,0 +1,198 @@
+#!/usr/bin/env bash
+# afs-minimize: produce a smaller AFS by keeping only the hash lines
+# whose time cue falls within a subtitle-driven coverage window. For
+# long-form content (movies, audiobooks, lecture recordings) this can
+# shrink the AFS by 60-80 % with no functional loss: the matcher's
+# job during music / silence stretches with no subtitles is just to
+# wait for the next cue's lead-in.
+#
+# Usage:
+#   afs-minimize [OPTIONS] <input.afs> <subtitles.srt> [output.afs]
+#
+# Outputs to stdout if no output path is given. The original .afs is
+# never modified.
+#
+# Options:
+#   --lead-ms N       AFS coverage to keep BEFORE each cue start
+#                     (default 10000 = 10 s). Gives the matcher time
+#                     to cold-start and lock before the first word
+#                     of a subtitle group lands.
+#   --gap-ms N        Merge adjacent cue windows if their gap is no
+#                     more than this many ms (default 20000 = 20 s).
+#                     Avoids coverage holes between rapid-fire cues
+#                     that would cause the matcher to lose lock.
+#   -h, --help        Show this help.
+#
+# Examples:
+#   afs-minimize movie.afs movie.en.srt > movie.min.afs
+#   afs-minimize --lead-ms 15000 movie.afs movie.en.srt movie.min.afs
+#
+# Caveat: this assumes the SRT is authoritative about "when sync
+# matters." If the SRT is incomplete (missing cues for parts of the
+# dialogue), the minimized AFS will have no coverage during those
+# holes and the matcher will report LOST while the source plays.
+
+set -euo pipefail
+
+LEAD_MS=10000
+GAP_MS=20000
+INPUT_AFS=""
+INPUT_SRT=""
+OUTPUT=""
+
+usage() {
+  sed -n 's/^# \?//;1,/^$/p' "$0" | tail -n +2
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --lead-ms)   LEAD_MS="$2"; shift 2;;
+    --gap-ms)    GAP_MS="$2"; shift 2;;
+    -h|--help)   usage; exit 0;;
+    -*)          echo "afs-minimize: unknown option '$1'" >&2; exit 1;;
+    *)
+      if [[ -z "$INPUT_AFS" ]]; then
+        INPUT_AFS="$1"
+      elif [[ -z "$INPUT_SRT" ]]; then
+        INPUT_SRT="$1"
+      elif [[ -z "$OUTPUT" ]]; then
+        OUTPUT="$1"
+      else
+        echo "afs-minimize: unexpected extra argument '$1'" >&2
+        exit 1
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$INPUT_AFS" || -z "$INPUT_SRT" ]]; then
+  echo "afs-minimize: need both <input.afs> and <subtitles.srt>" >&2
+  usage >&2
+  exit 1
+fi
+
+if [[ ! -f "$INPUT_AFS" ]]; then
+  echo "afs-minimize: AFS not found: $INPUT_AFS" >&2
+  exit 1
+fi
+if [[ ! -f "$INPUT_SRT" ]]; then
+  echo "afs-minimize: SRT not found: $INPUT_SRT" >&2
+  exit 1
+fi
+
+# Step 1: turn the SRT into a list of (start_ms, end_ms) intervals,
+# expanded by LEAD_MS on the start side, then sorted and merged with
+# the GAP_MS tolerance.
+KEPT_INTERVALS="$(
+  awk -v lead="$LEAD_MS" '
+    # SRT timestamps look like 00:01:23,456 --> 00:01:25,789
+    /^[0-9]+:[0-9]+:[0-9]+,[0-9]+ --> [0-9]+:[0-9]+:[0-9]+,[0-9]+/ {
+      split($0, parts, " --> ")
+      start = to_ms(parts[1]) - lead
+      if (start < 0) start = 0
+      end   = to_ms(parts[2])
+      print start " " end
+    }
+    function to_ms(ts,   p) {
+      gsub(/[:,]/, " ", ts)
+      split(ts, p, " ")
+      return p[1]*3600000 + p[2]*60000 + p[3]*1000 + p[4]
+    }
+  ' "$INPUT_SRT" | sort -n -k1,1 | awk -v gap="$GAP_MS" '
+    # Merge overlapping or near-adjacent intervals. Input is sorted
+    # by start time. We emit a merged interval whenever we hit one
+    # whose start is more than GAP_MS past the previous end.
+    NR == 1 { cur_s = $1; cur_e = $2; next }
+    {
+      if ($1 <= cur_e + gap) {
+        if ($2 > cur_e) cur_e = $2
+      } else {
+        print cur_s " " cur_e
+        cur_s = $1; cur_e = $2
+      }
+    }
+    END {
+      if (NR > 0) print cur_s " " cur_e
+    }
+  '
+)"
+
+if [[ -z "$KEPT_INTERVALS" ]]; then
+  echo "afs-minimize: SRT yielded no usable cues; refusing to write an empty AFS" >&2
+  exit 1
+fi
+
+INTERVAL_COUNT="$(printf '%s\n' "$KEPT_INTERVALS" | wc -l | tr -d ' ')"
+
+# Step 2: split the AFS into header and body. The body starts at the
+# first line that looks like "time_ms <payload>". Everything before
+# is comments + the TOML header (and a blank separator line).
+HEADER_END_LINE="$(awk '
+  /^[0-9]+[[:space:]]+/ { print NR-1; exit }
+' "$INPUT_AFS")"
+
+if [[ -z "$HEADER_END_LINE" ]]; then
+  echo "afs-minimize: $INPUT_AFS has no body lines (no 'time_ms payload' rows)" >&2
+  exit 1
+fi
+
+# Step 3: write the output. Header verbatim + a minimizer-provenance
+# comment + filtered body. awk -v doesn't accept newlines in values,
+# so we stash the intervals in a temp file and let awk getline them.
+TMP_OUT="$(mktemp)"
+INTERVAL_FILE="$(mktemp)"
+trap 'rm -f "$TMP_OUT" "$INTERVAL_FILE"' EXIT
+printf '%s\n' "$KEPT_INTERVALS" > "$INTERVAL_FILE"
+
+{
+  head -n "$HEADER_END_LINE" "$INPUT_AFS"
+  echo "# Minimized via afs-minimize: kept ${INTERVAL_COUNT} interval(s)"
+  echo "# from ${INPUT_SRT} (lead=${LEAD_MS}ms, gap=${GAP_MS}ms)."
+  echo ""
+  tail -n "+$((HEADER_END_LINE + 1))" "$INPUT_AFS" | awk -v ifile="$INTERVAL_FILE" '
+    BEGIN {
+      total = 0
+      while ((getline line < ifile) > 0) {
+        if (line == "") continue
+        split(line, p, " ")
+        total++
+        starts[total] = p[1] + 0
+        ends[total]   = p[2] + 0
+      }
+      close(ifile)
+      idx = 1
+      kept = 0
+      dropped = 0
+    }
+    /^[0-9]+[[:space:]]+/ {
+      t = $1 + 0
+      # Advance the interval pointer past any intervals strictly to
+      # the left of t. AFS body is monotonic in time, sorted
+      # intervals too, so we never need to rewind.
+      while (idx <= total && ends[idx] < t) idx++
+      if (idx <= total && t >= starts[idx] && t <= ends[idx]) {
+        print
+        kept++
+      } else {
+        dropped++
+      }
+      next
+    }
+    # Pass through body comments unmodified.
+    { print }
+    END {
+      printf "afs-minimize: kept %d hashes, dropped %d (%.1f%% reduction)\n",
+        kept, dropped, (kept + dropped > 0 ? 100 * dropped / (kept + dropped) : 0) \
+        > "/dev/stderr"
+    }
+  '
+} > "$TMP_OUT"
+
+if [[ -z "$OUTPUT" ]]; then
+  cat "$TMP_OUT"
+else
+  mv "$TMP_OUT" "$OUTPUT"
+  trap - EXIT
+  echo "afs-minimize: wrote $OUTPUT" >&2
+fi

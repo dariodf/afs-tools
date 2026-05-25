@@ -117,6 +117,33 @@ do this by default. Private servers or strict CDN setups may
 block the fetch with a CORS error — that's on the file host to
 configure, not on the player.
 
+### AFS file size and HTTP compression
+
+AFS files are plain text — a TOML header followed by one
+`time_ms <hash>` line per chromaprint frame (~8 per second). Each
+hash is encoded as a decimal integer, so the file has a lot of
+structural redundancy that gzip absorbs easily.
+
+Measured on a 113-minute feature film:
+
+| | Raw | gzip | xz |
+|---|---|---|---|
+| AFS file | 963 KB | **418 KB (43 %)** | 298 KB (31 %) |
+
+GitHub Pages, Netlify, Vercel, and every modern CDN apply
+gzip (or brotli) on `Content-Encoding` automatically for text
+responses, so a visitor's phone downloads the compressed
+version even though the file on disk looks bigger. A 2-hour
+movie's AFS arrives over the wire as ~300-400 KB — smaller
+than a moderately compressed image.
+
+If you're moving AFS files outside HTTP (AirDrop, email, USB),
+plain `gzip` cuts the file to ~43 % of its raw size with no
+information loss. `tools/afs-minimize` can shave a further few
+percent for dialogue-driven content; the win grows substantially
+for *sparse* subtitle content (karaoke, audiobooks with chapter
+breaks). See `tools/README.md`.
+
 ## Status
 
 v0.1 release candidate. The AFS parser, matcher, SRT parser, writer,

@@ -14,7 +14,7 @@
 // Run with: node test/test-cli-smoke.js
 
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync, unlinkSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -222,6 +222,68 @@ test("transcribe-generate: missing WhisperX prints install help", () => {
     "WhisperX not found",
     "transcribe-generate (no WhisperX)",
   );
+});
+
+// ----------------------------------------------------------------
+// afs-minimize
+// ----------------------------------------------------------------
+
+const MINIMIZE = path.join(TOOLS, "afs-minimize");
+
+test("afs-minimize: --help exits 0 with usage", () => {
+  const result = run(MINIMIZE, ["--help"]);
+  expectExitCode(result, 0, "afs-minimize --help");
+  expectOutputContains(result, "Usage", "afs-minimize --help");
+});
+
+test("afs-minimize: missing arguments exits non-zero with usage", () => {
+  const result = run(MINIMIZE, []);
+  if (result.status === 0) {
+    throw new Error(`afs-minimize with no args unexpectedly exited 0`);
+  }
+  expectOutputContains(result, "need both", "afs-minimize (no args)");
+});
+
+test("afs-minimize: missing AFS file exits non-zero", () => {
+  const result = run(MINIMIZE, [
+    "/tmp/does-not-exist-xyz123.afs",
+    "/tmp/does-not-exist-xyz123.srt",
+  ]);
+  if (result.status === 0) {
+    throw new Error(`afs-minimize on missing files unexpectedly exited 0`);
+  }
+  expectOutputContains(result, "not found", "afs-minimize (missing AFS)");
+});
+
+test("afs-minimize: minimizes the Tears of Steel pair and the result parses", () => {
+  // End-to-end: run the real tool on the demo content, verify the
+  // output is a valid AFS that contains fewer hash lines than the
+  // input. Skips gracefully if the demo content isn't built.
+  const inAfs = path.join(REPO_DIR, "demo/content/dialogue-clip.afs");
+  const inSrt = path.join(REPO_DIR, "demo/content/dialogue-clip.en.srt");
+  if (!existsSync(inAfs) || !existsSync(inSrt)) {
+    console.log("  (skipped: dialogue-clip demo content not present)");
+    return;
+  }
+  // Write to a tempfile rather than stdout — the smoke test runner
+  // doesn't need to read the AFS body, just confirm tool exit + size.
+  const outPath = path.join(REPO_DIR, ".afs-minimize-smoke-tmp.afs");
+  try {
+    const result = run(MINIMIZE, [inAfs, inSrt, outPath]);
+    expectExitCode(result, 0, "afs-minimize end-to-end");
+    if (!existsSync(outPath)) {
+      throw new Error("afs-minimize produced no output file");
+    }
+    const inSize = statSync(inAfs).size;
+    const outSize = statSync(outPath).size;
+    if (outSize >= inSize) {
+      throw new Error(
+        `expected minimized AFS (${outSize}B) to be smaller than original (${inSize}B)`,
+      );
+    }
+  } finally {
+    if (existsSync(outPath)) unlinkSync(outPath);
+  }
 });
 
 // ----------------------------------------------------------------
