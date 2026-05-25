@@ -232,6 +232,64 @@ about the exact count.
 
 ---
 
+## Demo 4: Silent Night (Singing Sergeants, 1990)
+
+Files: `silent-night.mp3`, `silent-night.srt`, `silent-night.afs`.
+
+### Why this piece
+
+A vocal piece was the missing demo category. Subtitles cover
+dialogue, haptics covers an instrumental orchestral payoff;
+karaoke covers a sung performance — the case where what the
+audience wants to follow is the *words coming out of voices*.
+That's a third recognizably distinct use of AFS, and Silent
+Night is universally known enough that visitors don't need to
+study the lyrics to feel the sync.
+
+### Why the Singing Sergeants 1990 recording
+
+- **Same provenance pattern as the 1812 Overture.** The U.S. Air
+  Force Band Singing Sergeants is the official chorus of a U.S.
+  federal-government ensemble. Recordings are works of the U.S.
+  government — public domain by 17 USC § 105. No license to
+  navigate, no royalties, no rights-clearance fragility.
+- **Modern audio quality.** 1990 studio recording, clean vocals,
+  no shellac noise. Old PD recordings of Silent Night exist
+  (1905 Edison cylinders, etc.) but sound bad enough that a
+  visitor's first reaction would be "what's that hiss?" instead
+  of "the lyrics are in sync."
+- **1:55 length** is ideal for a quick demo — long enough to
+  prove the matcher locks on, short enough that nobody walks
+  away mid-song.
+- **One verse, plus a triple-repeat of "Sleep in heavenly peace"**
+  — the choral arrangement is exactly the kind of sparse vocal
+  texture that exposes any sync slippage. If AFS can keep three
+  identical repetitions distinct in time, it can handle anything.
+
+Source: <https://commons.wikimedia.org/wiki/File:Silent_Night_(1990)_-_Singing_Sergeants_-_United_States_Air_Force_Band.mp3>
+
+### Why hand-written lyrics on top of WhisperX timings
+
+We ran the MP3 through [WhisperX](https://github.com/m-bain/whisperX)
+(Whisper transcription + wav2vec2 forced alignment for word-level
+timestamps). WhisperX got most of the song right but misheard the
+opening "Silent" as "High and" and missed the soft-sung "Round yon"
+before "Virgin Mother." We kept WhisperX's *timings* and replaced its
+*text* with the canonical John F. Young (1859) English lyrics. Line 3
+("Round yon Virgin Mother and Child") starts a few seconds earlier
+than WhisperX detected speech, to cover the choir actually singing
+"Round yon" through the gap WhisperX read as silence.
+
+The SRT is one line per phrase; word-level highlighting is a future
+polish.
+
+Lesson: forced alignment is a great starting point but humans should
+always read the output before committing it. Whisper-class models
+miss soft passages and archaic words; eyes (and ears) on the result
+matter.
+
+---
+
 ## What was considered and dropped
 
 ### Audio-only demo (Churchill speech) — DROPPED

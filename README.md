@@ -6,16 +6,16 @@ Reference implementation and demo for [AFS — Audio Fingerprint Sync](https://g
 
 ```
 afs-tools/
-├── tools/                # CLI generator scripts (bash)
-│   ├── afs-generate      # Media file → .afs (uses ffmpeg + fpcalc + afs-format)
-│   ├── afs-format        # fpcalc output → AFS v0.1 format
-│   └── srt-shift         # Shift all SRT timestamps by N seconds
-├── demo/                 # Browser-based AFS player and demos
-│   ├── index.html
-│   ├── app.js            # UI orchestration
+├── tools/                     # CLI generator scripts (bash)
+│   ├── afs-generate           # Media file → .afs (uses ffmpeg + fpcalc + afs-format)
+│   ├── afs-format             # fpcalc output → AFS v0.1 format
+│   └── transcribe-generate    # Media → .srt + .afs (uses WhisperX + afs-generate)
+├── demo/                      # Browser-based AFS player and demos
+│   ├── index.html             # Three demos: subtitles, karaoke, haptics + your-own-files
+│   ├── app.js                 # UI orchestration
 │   ├── style.css
-│   └── src/              # Reusable modules (parser, matcher, capture, etc.)
-└── test/                 # Test runner and tests
+│   └── src/                   # Reusable modules (parser, matcher, capture, etc.)
+└── test/                      # Test runner and tests
 ```
 
 ## Quick start
@@ -27,6 +27,22 @@ afs-tools/
 ./tools/afs-generate movie.mp4
 # Produces movie.afs
 ```
+
+### Generate an AFS + time-aligned SRT in one step
+
+For new demo content (subtitles, karaoke, etc.):
+
+```bash
+# Requires WhisperX in a local virtualenv (see tools/README.md).
+./tools/transcribe-generate movie.mp4
+# Produces movie.srt and movie.afs
+```
+
+The script transcribes the audio with [WhisperX](https://github.com/m-bain/whisperX)
+for word-level timings, then runs `afs-generate` for the fingerprint
+stream. Works for both speech (excellent) and singing (good timings,
+expect to hand-edit the text). See `tools/README.md` for the full
+workflow.
 
 ### Run the demo locally
 
@@ -62,32 +78,64 @@ publish the demo at `https://<username>.github.io/afs-tools/`.
 node test/test-runner.js
 ```
 
-30 tests cover the AFS parser, matcher, SRT parser, and writer.
+The test suite covers the AFS parser, matcher (offset-locked
+rendering, cut consistency, mic/direct capture, drift over long
+sources), SRT parser, writer, and the haptics event scheduler.
 
 ## Status
 
-v0.0.1. The AFS parser, matcher, SRT parser, and writer modules are
-implemented and tested. CLI tools (`afs-format`, `afs-generate`,
-`srt-shift`) are implemented. The WASM chromaprint module that the
-browser uses for live audio fingerprinting is currently a stub; live
-matching demos use a mock fingerprinter for development. The full
-implementation status is tracked in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+v0.1 release candidate. The AFS parser, matcher, SRT parser, writer,
+and haptics event scheduler are implemented and tested. CLI tools
+(`afs-format`, `afs-generate`, `transcribe-generate`) are implemented. The browser demo runs three live
+demos (subtitles desync, karaoke, haptics), all driven by real-time
+chromaprint fingerprinting in WebAssembly (via
+`@unimusic/chromaprint`). A companion `listen.html` page works on
+a second device's microphone for cross-device sync.
+
+Known gaps before broader release:
+- Long-form video (1–2 h source AFS) — chromaprint's per-tick
+  matcher cost is O(N) in the source length; verified-on-short-
+  form, longer content pending. See `ROADMAP.md`.
+- A potential v0.2 migration to Shazam-style landmark fingerprinting
+  is documented in `ROADMAP.md` but deferred. v0.1 ships with
+  chromaprint because of its existing ecosystem (libchromaprint,
+  fpcalc, language bindings) — anyone writing a plugin for VLC,
+  mpv, or similar already has a chromaprint library available.
 
 ## Dependencies
 
 ### System binaries
 
-- `bash` 4+
-- `ffmpeg` — any recent version. Used by the CLI tools, by the
-  integration test, and (manually) by content production recipes
-  in `demo/content/README.md`.
-- `fpcalc` — from [chromaprint](https://github.com/acoustid/chromaprint),
-  1.5.0+. Provides the canonical chromaprint fingerprinter used
-  by `tools/afs-generate` and by `test/test-fpcalc-match.js`.
-  - macOS: `brew install chromaprint ffmpeg`
-  - Debian/Ubuntu: `sudo apt install libchromaprint-tools ffmpeg`
-- `sha256sum` (Linux) or `shasum -a 256` (macOS) — for the SHA-256
-  field of generated AFS files.
+The CLI tools shell out to `ffmpeg` (audio extraction) and `fpcalc`
+from [chromaprint](https://github.com/acoustid/chromaprint) 1.5+
+(fingerprinting). Install both with one command for your platform:
+
+```bash
+# macOS (Homebrew)
+brew install ffmpeg chromaprint
+
+# Debian / Ubuntu
+sudo apt install ffmpeg libchromaprint-tools
+
+# Fedora
+sudo dnf install ffmpeg chromaprint-tools
+
+# Arch
+sudo pacman -S ffmpeg chromaprint
+```
+
+Also required: `bash` 4+ (pre-installed everywhere; macOS users on
+the system zsh still need bash — `brew install bash` for v5) and
+either `sha256sum` (Linux) or `shasum -a 256` (macOS, pre-installed).
+
+We do **not** redistribute `fpcalc`; the script calls whatever
+version is on your `PATH`. The browser demo ships a separate
+WASM build of chromaprint under `demo/vendor/` (see `NOTICE` for
+the LGPL-2.1 attribution and replacement procedure).
+
+Optional (only for `tools/transcribe-generate`): Python 3.10–3.12
+plus a local virtualenv with `whisperx`. See `tools/README.md`
+for the setup. Demo visitors never need this.
 
 ### Demo (browser side)
 

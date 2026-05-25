@@ -90,9 +90,9 @@ v0.2 — not a parallel option.
 **Tools (`tools/`):**
 
 - [ ] Update `afs-generate` to produce landmark-format AFS by default.
-- [ ] Keep `cannon-mix` as-is — it operates on the audio, not the
-      fingerprints; only `afs-generate` changes consumers.
 - [ ] `tools/afs-format` needs the new header schema.
+- [ ] Content-production scripts in `demo/content/` operate on raw
+      audio, not fingerprints — no changes there.
 
 **Tests:**
 

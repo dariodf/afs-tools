@@ -34,8 +34,8 @@
   <main>
     <nav class="tabs" role="tablist" aria-label="Demo">
       <button class="tab" role="tab" data-demo="desync-video">Subtitles</button>
+      <button class="tab" role="tab" data-demo="karaoke">Karaoke</button>
       <button class="tab" role="tab" data-demo="haptics">Haptics</button>
-      <button class="tab" role="tab" data-demo="custom">Your own files</button>
     </nav>
 
     <section class="status" id="status" aria-live="polite">
@@ -43,23 +43,6 @@
       <span class="status-label">status</span>
       <span class="status-divider" aria-hidden="true">/</span>
       <span class="status-value" id="status-text">idle</span>
-    </section>
-
-    <section class="custom-files" id="custom-files" hidden>
-      <h2>Use your own files</h2>
-      <p>Drop in any media file with a matching SRT to test AFS on your own content. If you don't have an AFS file, one will be generated in your browser.</p>
-
-      <label>Media file:
-        <input type="file" id="custom-media" accept="audio/*,video/*">
-      </label>
-      <label>Subtitle file (optional):
-        <input type="file" id="custom-srt" accept=".srt,.vtt,text/plain">
-      </label>
-      <label>AFS file (optional, generated otherwise):
-        <input type="file" id="custom-afs" accept=".afs,text/plain">
-      </label>
-
-      <p class="custom-note">Audio decoding happens in your browser. Files never leave your device. Generated AFS files can be downloaded once ready.</p>
     </section>
 
     <div class="stage">
@@ -85,7 +68,9 @@
       Content credits:
       Tears of Steel © <a href="https://mango.blender.org/">Blender Foundation</a>, CC-BY 3.0 ·
       1812 Overture by the U.S. Army Band (Public Domain) ·
-      Cannon footage: "Firing the cannon at Fort Snelling" by G. Edward Johnson, <a href="https://commons.wikimedia.org/wiki/File:Fort_snelling_cannon_20120612_lq.ogv">CC&nbsp;BY&nbsp;3.0</a>
+      Cannon footage: "Firing the cannon at Fort Snelling" by G. Edward Johnson, <a href="https://commons.wikimedia.org/wiki/File:Fort_snelling_cannon_20120612_lq.ogv">CC&nbsp;BY&nbsp;3.0</a> ·
+      <em>Silent Night</em> performed by the U.S. Air Force Band <a href="https://commons.wikimedia.org/wiki/File:Silent_Night_(1990)_-_Singing_Sergeants_-_United_States_Air_Force_Band.mp3">Singing Sergeants</a> (1990, Public Domain) ·
+      Karaoke lyrics aligned with <a href="https://github.com/m-bain/whisperX">WhisperX</a>
     </p>
   </footer>
 

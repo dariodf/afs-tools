@@ -694,107 +694,6 @@ header {
 }
 
 /* -----------------------------------------------------------------------
-   Custom files form
-   ----------------------------------------------------------------------- */
-
-.custom-files {
-  padding: var(--s-5);
-  background: var(--bg-elevated);
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-}
-
-.custom-files h2 {
-  font-family: var(--font-display);
-  font-weight: 500;
-  font-size: 1.5rem;
-  line-height: 1.2;
-  margin: 0 0 var(--s-2);
-  font-variation-settings: "opsz" 30, "SOFT" 40;
-}
-
-.custom-files > p {
-  color: var(--fg-dim);
-  font-size: 0.9375rem;
-  margin: 0 0 var(--s-4);
-  max-width: 60ch;
-}
-
-.custom-files label {
-  display: block;
-  margin: var(--s-4) 0;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--fg-muted);
-}
-
-.custom-files input[type="file"] {
-  display: block;
-  width: 100%;
-  margin-top: var(--s-2);
-  padding: var(--s-2) var(--s-3);
-  font-family: var(--font-body);
-  font-size: 0.9375rem;
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  cursor: pointer;
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-.custom-files input[type="file"]::file-selector-button {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: var(--s-1) var(--s-3);
-  margin-right: var(--s-3);
-  background: var(--accent);
-  color: var(--accent-fg);
-  border: 0;
-  border-radius: 3px;
-  cursor: pointer;
-  transition: background 150ms ease;
-}
-
-.custom-files input[type="file"]::file-selector-button:hover {
-  background: var(--accent-hover);
-}
-
-.custom-note {
-  margin-top: var(--s-4);
-  color: var(--fg-dim);
-  font-size: 0.8125rem;
-  line-height: 1.5;
-  padding-top: var(--s-3);
-  border-top: 1px solid var(--rule-soft);
-}
-
-.custom-instructions {
-  background: var(--bg-elevated);
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  padding: var(--s-4) var(--s-5);
-}
-
-.custom-instructions p {
-  margin: var(--s-2) 0;
-  color: var(--fg-dim);
-}
-
-.custom-instructions video,
-.custom-instructions audio {
-  width: 100%;
-  margin-top: var(--s-3);
-}
-
-/* -----------------------------------------------------------------------
    Haptics demo
    ----------------------------------------------------------------------- */
 
@@ -886,6 +785,43 @@ header {
   color: var(--fg-dim);
   font-size: 0.9375rem;
 }
+
+.karaoke-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.karaoke-instructions {
+  color: var(--fg-dim);
+  font-size: 0.9375rem;
+}
+
+/* The lyric line is the focal element of the karaoke demo. Big,
+   italic display serif over the project's dim background; gives
+   it choral weight without competing with the page chrome. The
+   :empty pseudo prevents the box from collapsing to 0 height
+   between phrases (which would make the audio controls jump up
+   and down). */
+.karaoke-lyrics {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: clamp(1.5rem, 4vw, 2.5rem);
+  line-height: 1.3;
+  text-align: center;
+  color: var(--fg);
+  min-height: 4.5em;
+  padding: var(--s-5) var(--s-4);
+  letter-spacing: -0.01em;
+  font-variation-settings: "opsz" 90, "SOFT" 100;
+}
+
+.karaoke-lyrics:empty::before {
+  content: " ";
+  white-space: pre;
+}
+
 
 .mic-listening {
   font-family: var(--font-display);

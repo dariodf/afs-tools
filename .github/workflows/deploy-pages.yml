@@ -120,6 +120,11 @@ jobs:
           node test/test-seek-recovery.js
           # afs-generate CLI: end-to-end conformance against parser.
           node test/test-cli-conformance.js
+          # CLI smoke tests: --help, error paths, argument parsing
+          # for afs-format, afs-generate, transcribe-generate.
+          # Does NOT install WhisperX; the no-WhisperX path is one
+          # of the things this test asserts errors cleanly.
+          node test/test-cli-smoke.js
 
       - uses: actions/configure-pages@v5
 

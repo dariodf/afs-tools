@@ -1,0 +1,231 @@
+#!/usr/bin/env bash
+# transcribe-generate: produce a time-aligned SRT and an AFS file
+# from any media file (audio or video). One step for the demo
+# content-authoring pipeline: scan media → get both a subtitle/lyric
+# stream and the fingerprint stream the AFS reference player needs.
+#
+# Pipes through:
+#   1. WhisperX (OpenAI Whisper + wav2vec2 forced alignment) → SRT
+#   2. afs-generate (sibling script in this directory) → AFS
+#
+# Usage:
+#   transcribe-generate [OPTIONS] <input-file>
+#
+# Output:
+#   <input-basename>.srt and <input-basename>.afs, written next to the
+#   input file by default (override with --output-dir).
+#
+# Options:
+#   --model SIZE         WhisperX model: tiny | base | small | medium |
+#                        large-v3   (default: small)
+#   --language CODE      ISO-639-1 language code (default: en)
+#   --no-srt             Skip transcription; just run afs-generate
+#   --no-afs             Just transcribe; skip AFS generation
+#   --output-dir DIR     Output directory (default: same as input file)
+#   -q, --quiet          Reduce console output
+#   -h, --help           Show this help
+#
+# WhisperX is discovered in this order:
+#   1. <repo-root>/.venv-whisperx/bin/whisperx
+#   2. `whisperx` on PATH
+# If neither is found, the script prints setup instructions and exits.
+#
+# A note on karaoke (sung content):
+#   WhisperX works best on clear speech. For sung content, it tends to
+#   mishear a word or two and sometimes misses softly-sung passages.
+#   The WORD-LEVEL TIMINGS are still accurate — what's unreliable is
+#   the text. Plan to open the produced .srt and replace the lyric
+#   text with the canonical version while keeping WhisperX's timings.
+#   (The Silent Night demo content was produced exactly this way; see
+#   demo/content/MEDIA-CHOICES.md for the rationale.)
+
+set -euo pipefail
+
+# Defaults
+MODEL="small"
+LANGUAGE="en"
+DO_SRT=1
+DO_AFS=1
+OUTPUT_DIR=""
+QUIET=0
+INPUT=""
+
+usage() {
+  sed -n 's/^# \?//;1,/^$/p' "$0" | tail -n +2
+}
+
+log() {
+  if [[ "$QUIET" -eq 0 ]]; then
+    echo "transcribe-generate: $*"
+  fi
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --model)        MODEL="$2"; shift 2;;
+    --language)     LANGUAGE="$2"; shift 2;;
+    --no-srt)       DO_SRT=0; shift;;
+    --no-afs)       DO_AFS=0; shift;;
+    --output-dir)   OUTPUT_DIR="$2"; shift 2;;
+    -q|--quiet)     QUIET=1; shift;;
+    -h|--help)      usage; exit 0;;
+    -*)             echo "transcribe-generate: unknown option '$1'" >&2; exit 1;;
+    *)
+      if [[ -z "$INPUT" ]]; then
+        INPUT="$1"
+      else
+        echo "transcribe-generate: unexpected extra argument '$1'" >&2
+        exit 1
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$INPUT" ]]; then
+  echo "transcribe-generate: no input file specified" >&2
+  usage >&2
+  exit 1
+fi
+
+if [[ ! -f "$INPUT" ]]; then
+  echo "transcribe-generate: input file not found: $INPUT" >&2
+  exit 1
+fi
+
+if [[ "$DO_SRT" -eq 0 && "$DO_AFS" -eq 0 ]]; then
+  echo "transcribe-generate: --no-srt and --no-afs together would do nothing" >&2
+  exit 1
+fi
+
+# Resolve paths
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+AFS_GENERATE="$SCRIPT_DIR/afs-generate"
+
+if [[ "$DO_AFS" -eq 1 && ! -x "$AFS_GENERATE" ]]; then
+  echo "transcribe-generate: sibling afs-generate script not found or not executable at $AFS_GENERATE" >&2
+  exit 1
+fi
+
+# Determine output directory + basename
+INPUT_ABS="$(cd "$(dirname "$INPUT")" && pwd)/$(basename "$INPUT")"
+INPUT_BASE="$(basename "$INPUT")"
+INPUT_STEM="${INPUT_BASE%.*}"
+
+if [[ -z "$OUTPUT_DIR" ]]; then
+  OUTPUT_DIR="$(dirname "$INPUT_ABS")"
+fi
+if [[ ! -d "$OUTPUT_DIR" ]]; then
+  echo "transcribe-generate: output directory does not exist: $OUTPUT_DIR" >&2
+  exit 1
+fi
+
+SRT_PATH="$OUTPUT_DIR/$INPUT_STEM.srt"
+AFS_PATH="$OUTPUT_DIR/$INPUT_STEM.afs"
+
+# -----------------------------------------------------------------
+# Step 1: WhisperX → SRT
+# -----------------------------------------------------------------
+
+if [[ "$DO_SRT" -eq 1 ]]; then
+  # Locate WhisperX. Prefer the project-local venv (tools/README and
+  # the project README walk users through creating one) so that
+  # `transcribe-generate` doesn't suddenly behave differently when
+  # the user's shell PATH changes.
+  WHISPERX_BIN=""
+  if [[ -x "$REPO_ROOT/.venv-whisperx/bin/whisperx" ]]; then
+    WHISPERX_BIN="$REPO_ROOT/.venv-whisperx/bin/whisperx"
+    log "using WhisperX from $REPO_ROOT/.venv-whisperx/"
+  elif command -v whisperx >/dev/null 2>&1; then
+    WHISPERX_BIN="$(command -v whisperx)"
+    log "using WhisperX from PATH: $WHISPERX_BIN"
+  else
+    cat >&2 <<'EOF'
+transcribe-generate: WhisperX not found.
+
+Install it locally in a virtualenv so this script can find it:
+
+  cd <repo-root>
+  python3 -m venv .venv-whisperx
+  .venv-whisperx/bin/pip install --upgrade pip wheel
+  .venv-whisperx/bin/pip install whisperx
+
+WhisperX needs Python 3.10–3.12. If your default `python3` is
+newer than 3.12, install Python 3.12 first (e.g. via asdf or
+pyenv).
+
+Alternative: install WhisperX globally so it lands on your PATH.
+
+After installing, re-run transcribe-generate.
+EOF
+    exit 1
+  fi
+
+  log "transcribing $INPUT → $SRT_PATH (model=$MODEL, lang=$LANGUAGE)"
+
+  # Run in a temp directory so WhisperX's intermediate files (.json,
+  # .tsv, .txt, .vtt) don't clutter the user's content dir. We move
+  # just the .srt out.
+  WORK_DIR="$(mktemp -d)"
+  trap 'rm -rf "$WORK_DIR"' EXIT
+
+  WHISPERX_ARGS=(
+    "$INPUT_ABS"
+    --model "$MODEL"
+    --language "$LANGUAGE"
+    --output_format srt
+    --output_dir "$WORK_DIR"
+    --compute_type int8
+  )
+  if [[ "$QUIET" -eq 1 ]]; then
+    "$WHISPERX_BIN" "${WHISPERX_ARGS[@]}" >/dev/null 2>&1
+  else
+    "$WHISPERX_BIN" "${WHISPERX_ARGS[@]}"
+  fi
+
+  PRODUCED_SRT="$WORK_DIR/$INPUT_STEM.srt"
+  if [[ ! -f "$PRODUCED_SRT" ]]; then
+    echo "transcribe-generate: WhisperX did not produce expected SRT at $PRODUCED_SRT" >&2
+    exit 1
+  fi
+
+  mv "$PRODUCED_SRT" "$SRT_PATH"
+  log "wrote $SRT_PATH"
+fi
+
+# -----------------------------------------------------------------
+# Step 2: afs-generate → AFS
+# -----------------------------------------------------------------
+
+if [[ "$DO_AFS" -eq 1 ]]; then
+  log "generating AFS → $AFS_PATH"
+  AFS_ARGS=(-o "$AFS_PATH")
+  if [[ "$QUIET" -eq 1 ]]; then
+    AFS_ARGS+=(-q)
+  fi
+  AFS_ARGS+=("$INPUT_ABS")
+  "$AFS_GENERATE" "${AFS_ARGS[@]}"
+fi
+
+# -----------------------------------------------------------------
+# Done
+# -----------------------------------------------------------------
+
+if [[ "$QUIET" -eq 0 ]]; then
+  echo ""
+  echo "transcribe-generate: done."
+  if [[ "$DO_SRT" -eq 1 ]]; then
+    echo "  SRT: $SRT_PATH"
+  fi
+  if [[ "$DO_AFS" -eq 1 ]]; then
+    echo "  AFS: $AFS_PATH"
+  fi
+  if [[ "$DO_SRT" -eq 1 ]]; then
+    echo ""
+    echo "Tip: review the .srt against your source material. WhisperX"
+    echo "  is accurate on speech but loses 1-2 words per phrase on"
+    echo "  sung content. Replace the text with canonical lyrics where"
+    echo "  needed — the timings are usable as-is."
+  fi
+fi

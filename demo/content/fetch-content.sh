@@ -7,10 +7,11 @@
 #   bash fetch-content.sh
 #
 # Produces:
-#   tearsofsteel-full.mp4       (~400MB, Tears of Steel full film)
-#   1812-overture-full.mp3      (~30MB, full overture)
+#   tearsofsteel-full.mp4       (~120MB, Tears of Steel 720p)
 #   tearsofsteel.en.srt         (Tears of Steel English subtitles)
+#   1812-army.ogg               (~10MB, full overture, US Army Band)
 #   cannon-shot-source.ogv      (~1MB, WWI howitzer firing, PD)
+#   silent-night.mp3            (~6.5MB, USAF Singing Sergeants, PD)
 #
 # After running this script, follow the production steps in
 # README.md to trim each source down to the demo-sized clips.
@@ -70,8 +71,25 @@ else
   echo "  cannon-shot-source.ogv already exists"
 fi
 
+# Silent Night - U.S. Air Force Band Singing Sergeants, 1990 (Public
+# Domain, US federal-government work). 1:55 choral recording used by
+# the karaoke demo. Used directly as silent-night.mp3 (no further
+# trimming). Pipeline (see README.md):
+#   - tools/transcribe-generate produces silent-night.srt (WhisperX)
+#   - SRT is hand-corrected to canonical John F. Young (1859) lyrics
+#   - tools/afs-generate produces silent-night.afs
+if [[ ! -f silent-night.mp3 ]]; then
+  echo "  fetching Silent Night (USAF Singing Sergeants, ~6.5MB)..."
+  curl -L -o silent-night.mp3 \
+    'https://upload.wikimedia.org/wikipedia/commons/b/b8/Silent_Night_%281990%29_-_Singing_Sergeants_-_United_States_Air_Force_Band.mp3' \
+    || echo "  WARNING: Silent Night download failed; check the URL"
+else
+  echo "  silent-night.mp3 already exists"
+fi
+
 echo ""
 echo "Done. Next steps:"
 echo "  1. Follow the trimming/clipping instructions in README.md."
-echo "  2. Run ../../tools/afs-generate on each clip to produce .afs files."
+echo "  2. Run ../../tools/afs-generate (or transcribe-generate)"
+echo "     on each clip to produce .afs / .srt files."
 echo "  3. Hand-annotate overture-finale-cannons.json by listening."

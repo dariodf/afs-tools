@@ -63,3 +63,35 @@ cannon-shot.mp4 (demo/content/)
            licensed CC BY 3.0, via Wikimedia Commons. The CC BY grant
            on this single asset does not relicense any other part of
            the project; only this file is offered under CC BY 3.0.
+
+silent-night.mp3 (demo/content/)
+  Performance of "Silent Night" by the United States Air Force Band
+  Singing Sergeants, recorded in 1990. Used by the karaoke demo.
+  License: Public Domain (work of the U.S. federal government,
+           17 USC § 105). Composition (Franz Xaver Gruber, 1818) and
+           English lyrics (John F. Young, 1859) are public domain by
+           age.
+  Source:  https://commons.wikimedia.org/wiki/File:Silent_Night_(1990)_-_Singing_Sergeants_-_United_States_Air_Force_Band.mp3
+  Notice:  No attribution required, but credited in the demo footer
+           and in demo/content/MEDIA-CHOICES.md.
+
+silent-night.srt (demo/content/)
+  Time-aligned English lyrics for the karaoke demo. Word-level
+  timings derived by WhisperX (see below); displayed text is the
+  canonical John F. Young (1859) English translation, public
+  domain by age.
+  License: Public Domain.
+
+WhisperX (tools/transcribe-generate)
+  Used in the content authoring pipeline (not shipped to demo
+  visitors) to produce word-level timestamps for the karaoke and
+  subtitled-video demo content. WhisperX wraps OpenAI Whisper +
+  wav2vec2 forced alignment.
+  License: BSD 4-Clause "Original" or "Old" License
+  Source:  https://github.com/m-bain/whisperX
+  Notice:  WhisperX is invoked from tools/transcribe-generate as an
+           external CLI; it is not bundled with or redistributed by
+           AFS Tools. Users who want to regenerate content from
+           source install WhisperX themselves into a local
+           virtualenv as described in tools/transcribe-generate
+           and the project README.

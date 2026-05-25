@@ -78,14 +78,15 @@ curl -o overture-full.mp3 'https://archive.org/download/1812Overture_201603/...'
 # Identify the first cannon by listening; clip from 30s before to 30s after the last
 ffmpeg -i overture-full.mp3 -ss FINALE_START -to FINALE_END -c copy overture-finale.mp3
 
-# Generate the AFS
+# Mix the Fort Snelling cannon SFX into the finale at detected onsets.
+# Produces overture-finale.mp3 (overwriting) + overture-finale-cannons.json
+# (the audible firing times for the haptics scheduler).
+./cannon-mix overture-finale-raw.mp3 cannon-shot.mp4
+
+# Generate the AFS for the mixed audio
 ../../tools/afs-generate --title "1812 Overture (finale)" \
   --language en overture-finale.mp3
 # Note: language tag is "en" by convention; the piece has no spoken language.
-
-# Hand-annotate cannon timings: listen to overture-finale.mp3, note each cannon
-# time, write into overture-finale-cannons.json. Example shape:
-#   { "events": [{"time_ms": 32400, "type": "cannon", "label": "Cannon 1"}, ...] }
 
 # Trim the cannon clip to ~1 second of the firing moment, convert to mp4
 # (browser-friendlier than ogv). Adjust -ss to the actual firing instant
@@ -93,6 +94,47 @@ ffmpeg -i overture-full.mp3 -ss FINALE_START -to FINALE_END -c copy overture-fin
 ffmpeg -i cannon-shot-source.ogv -ss 5 -t 1 \
   -c:v libx264 -preset slow -crf 23 -an cannon-shot.mp4
 ```
+
+`./cannon-mix` is the bespoke ffmpeg-filtergraph script for this
+demo's specific 1812 + Fort-Snelling combination — see its
+header comment for the threshold/gain parameters. Not a
+general-purpose AFS tool; lives here in `demo/content/` rather
+than `tools/` for that reason.
+
+### silent-night (Singing Sergeants Silent Night)
+
+| File | Source | License |
+|------|--------|---------|
+| `silent-night.mp3` | U.S. Air Force Band Singing Sergeants, 1990 recording | Public Domain (federal-government work, 17 USC § 105) |
+| `silent-night.srt` | Canonical English lyrics (John F. Young, 1859) time-aligned with WhisperX, then hand-corrected | Public Domain |
+
+Source URL:
+- Audio: https://commons.wikimedia.org/wiki/File:Silent_Night_(1990)_-_Singing_Sergeants_-_United_States_Air_Force_Band.mp3
+
+Production steps:
+
+```bash
+# Download the audio (a clean 1:55 1990 recording).
+curl -L -o silent-night.mp3 \
+  'https://upload.wikimedia.org/wikipedia/commons/b/b8/Silent_Night_%281990%29_-_Singing_Sergeants_-_United_States_Air_Force_Band.mp3'
+
+# Auto-generate timed lyrics + AFS in one step using WhisperX.
+# (Requires .venv-whisperx — see ../../tools/README.md.)
+../../tools/transcribe-generate --language en silent-night.mp3
+# → silent-night.srt  (timings good, text needs review)
+# → silent-night.afs  (final)
+
+# Open silent-night.srt and replace WhisperX's text with the canonical
+# John F. Young (1859) English lyrics, keeping WhisperX's timings. The
+# choir's first verse + a triple-repeat of "Sleep in heavenly peace"
+# is what the demo expects to find. See MEDIA-CHOICES.md for the
+# rationale and a snapshot of the final SRT.
+```
+
+Per the rationale in [MEDIA-CHOICES.md](MEDIA-CHOICES.md), expect
+WhisperX to mishear softly-sung opening words ("Silent" → "High and")
+and to skip the archaic "Round yon" before "Virgin Mother." Keep
+the *timings* WhisperX produces, replace the *text*.
 
 ## Licensing notes
 
@@ -108,5 +150,7 @@ When using this content in a deployed demo, attribution lines should
 appear in the demo UI:
 
 - Tears of Steel © Blender Foundation, CC-BY 3.0
-- 1812 Overture performed by Skidmore College Orchestra (Public Domain via musopen.org)
-- Cannon firing footage: US Army Signal Corps, c. 1918 (Public Domain)
+- 1812 Overture performed by the U.S. Army Band (Public Domain)
+- Cannon firing footage: "Firing the cannon at Fort Snelling" by G. Edward Johnson, CC BY 3.0
+- Silent Night performed by the U.S. Air Force Band Singing Sergeants (Public Domain)
+- Karaoke lyric alignment via [WhisperX](https://github.com/m-bain/whisperX)

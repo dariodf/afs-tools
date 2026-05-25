@@ -9,8 +9,7 @@ import { parseSRT } from "./src/srt-parser.js";
 import { DemoSession } from "./src/demo-session.js";
 import { SubtitleRenderer } from "./src/subtitle-renderer.js";
 import { HapticsEventManager } from "./src/haptics-events.js";
-import { writeAFS } from "./src/afs-writer.js";
-import { mockFingerprint, estimateMatchLatencyMs } from "./src/chromaprint.js";
+import { estimateMatchLatencyMs } from "./src/chromaprint.js";
 import { computeTimeMapping } from "./src/afs-mapping.js";
 import { qrCode } from "./src/vendor/qr-code.js";
 import { DebugPanel } from "./src/debug-panel.js";
@@ -104,20 +103,16 @@ function bindSessionStatus(session) {
         );
         break;
       case "matched":
+      case "approximate":
+        // "approximate" is a matcher-internal signal (the buffer's
+        // edges don't fully line up with the projected window —
+        // typically a cut-spanning capture). From the user's seat
+        // there's only "in sync" or "not"; the matcher's edge
+        // uncertainty isn't something they can act on, so we
+        // collapse the two states into one indicator.
         setStatus(
           `in sync · ${formatTimeMs(status.timeMs)} · ${Math.round(status.confidence)}%`,
           "ok",
-        );
-        break;
-      case "approximate":
-        // Buffer spans a cut — the matcher's position is roughly
-        // right but its tail/head doesn't fully line up. We still
-        // pass the position through (the subtitle stays close to
-        // accurate) but flag it so the user knows we're crossing
-        // an edit boundary.
-        setStatus(
-          `crossing cut · ${formatTimeMs(status.timeMs)} · ${Math.round(status.confidence)}%`,
-          "warn",
         );
         break;
       case "error":
@@ -166,10 +161,15 @@ function companionUrlFor(demoId) {
     url.searchParams.set("afs", "content/overture-finale.afs");
     url.searchParams.set("events", "content/overture-finale-cannons.json");
     url.searchParams.set("title", "1812 Overture · finale");
-  } else {
-    // Custom files: stays on the main app for now.
-    url.searchParams.set("demo", demoId);
-    url.searchParams.set("mode", "mic");
+  } else if (demoId === "karaoke") {
+    // Karaoke demo: companion goes to listen.html with the song's
+    // AFS + lyric SRT. The listen page is generic enough that
+    // karaoke just looks like a subtitle stream.
+    url.pathname = url.pathname.replace(/[^/]*$/, "listen.html");
+    url.search = "";
+    url.searchParams.set("afs", "content/silent-night.afs");
+    url.searchParams.set("srt", "content/silent-night.srt");
+    url.searchParams.set("title", "Silent Night");
   }
   return url.toString();
 }
@@ -462,7 +462,7 @@ async function startHapticsDemo() {
     </div>
     <div class="haptics-stage">
       <audio id="demo-audio" controls preload="metadata"></audio>
-      <p class="haptics-instructions">Press play. Cannons fire as Tchaikovsky intended.</p>
+      <p class="haptics-instructions">Press play. Cannons fire <a href="https://en.wikipedia.org/wiki/1812_Overture#Instrumentation" target="_blank" rel="noopener">as Tchaikovsky intended</a>.</p>
       <video id="cannon-video" class="cannon-video inline" muted playsinline preload="auto"></video>
       <details class="cannon-annotator">
         <summary>Annotate cannon timings</summary>
@@ -637,6 +637,135 @@ async function startHapticsDemo() {
   await switchMode("precalc");
 }
 
+// -----------------------------------------------------------------------
+// Karaoke demo: audio + line-by-line lyrics, AFS-synced
+// -----------------------------------------------------------------------
+
+async function startKaraokeDemo() {
+  // Karaoke is the simplest demo: play audio, show the line being
+  // sung. It exists to make the same point as subtitles — AFS lets
+  // any device follow along — but with a song instead of dialogue.
+  //
+  // Modes mirror the other demos. Pre-calc is trivial here (just
+  // SRT against the audio element's currentTime; no AFS lookup
+  // needed when you control the source). Listen mode runs the
+  // matcher and drives the lyric off the reported source position
+  // — same offset-locked rendering as the subtitles demo so the
+  // line stays smooth between matcher ticks.
+  state.els.playerArea.innerHTML = `
+    <div class="afs-mode-row" role="tablist" aria-label="AFS source">
+      <span class="afs-mode-label">AFS source:</span>
+      <button class="afs-mode-btn" role="tab" data-afs-mode="precalc">Pre-calculated</button>
+      <button class="afs-mode-btn" role="tab" data-afs-mode="listen">Listen · audio output</button>
+      <span class="afs-mode-detail" id="afs-mode-detail"></span>
+    </div>
+    <div class="karaoke-stage">
+      <audio id="demo-audio" controls preload="metadata"></audio>
+      <p class="karaoke-instructions">Press play. Lyrics follow the choir — try it on your phone via the QR code on the right.</p>
+      <div class="karaoke-lyrics" id="karaoke-lyrics" aria-live="polite"></div>
+    </div>
+  `;
+
+  const audioEl = document.getElementById("demo-audio");
+  audioEl.src = "content/silent-night.mp3";
+
+  const srtText = await fetch("content/silent-night.srt").then((r) => r.text());
+  const cues = parseSRT(srtText);
+  const renderer = new SubtitleRenderer(
+    document.getElementById("karaoke-lyrics"),
+    cues,
+  );
+
+  let activeMode = null;
+
+  function setModeDetail(text) {
+    document.getElementById("afs-mode-detail").textContent = text;
+  }
+
+  function syncModeButtons(mode) {
+    for (const btn of document.querySelectorAll("[data-afs-mode]")) {
+      btn.classList.toggle("active", btn.dataset.afsMode === mode);
+      btn.setAttribute(
+        "aria-selected",
+        btn.dataset.afsMode === mode ? "true" : "false",
+      );
+    }
+  }
+
+  async function teardown() {
+    stopRafLoop();
+    if (state.session) {
+      state.session.stop();
+      state.session = null;
+    }
+    renderer.setUseAfs(false);
+    renderer.setRawTimeMs(0);
+  }
+
+  async function startPrecalcMode() {
+    setModeDetail("");
+    renderer.setUseAfs(false);
+    startRafLoop(() => {
+      renderer.setRawTimeMs(audioEl.currentTime * 1000);
+    });
+    setStatus("ready · press play", "");
+  }
+
+  async function startListenMode() {
+    setModeDetail("");
+    // Offset-locked rendering, same approach as the subtitles demo:
+    // the matcher reports source position intermittently; the rAF
+    // loop computes current source time as
+    // audio.currentTime + lastGoodOffset every frame.
+    let afsOffsetMs = null;
+    const onSeek = () => { afsOffsetMs = null; };
+    audioEl.addEventListener("seeking", onSeek);
+    state.afsSeekListener = onSeek;
+
+    const session = new DemoSession({
+      onPosition: (timeMs) => {
+        afsOffsetMs = timeMs - audioEl.currentTime * 1000;
+      },
+    });
+    state.session = session;
+    bindSessionStatus(session);
+    await session.loadAFS("content/silent-night.afs");
+    await session.startDirect(audioEl);
+
+    renderer.setUseAfs(true);
+    startRafLoop(() => {
+      const localMs = audioEl.currentTime * 1000;
+      renderer.setRawTimeMs(localMs);
+      if (afsOffsetMs != null) renderer.setAfsTimeMs(localMs + afsOffsetMs);
+    });
+  }
+
+  async function switchMode(newMode) {
+    if (activeMode === newMode) return;
+    activeMode = newMode;
+    syncModeButtons(newMode);
+    await teardown();
+    if (state.afsSeekListener) {
+      audioEl.removeEventListener("seeking", state.afsSeekListener);
+      state.afsSeekListener = null;
+    }
+    setStatus("idle");
+    try {
+      if (newMode === "precalc") await startPrecalcMode();
+      else if (newMode === "listen") await startListenMode();
+    } catch (e) {
+      console.error(e);
+      setStatus(`error: ${e.message}`, "error");
+    }
+  }
+
+  for (const btn of document.querySelectorAll("[data-afs-mode]")) {
+    btn.addEventListener("click", () => switchMode(btn.dataset.afsMode));
+  }
+
+  await switchMode("precalc");
+}
+
 // setupCannonAnnotator: live timer + tap-to-mark UI for hand-
 // timing cannon events against the audio. Output formatted as the
 // `events` array of overture-finale-cannons.json — copyable
@@ -787,200 +916,6 @@ function fireCannon(videoEl) {
   setTimeout(() => videoEl.classList.remove("showing"), 2000);
 }
 
-// -----------------------------------------------------------------------
-// Custom-files demo: upload your own
-// -----------------------------------------------------------------------
-
-async function startCustomDemo() {
-  // Custom files demo only makes sense in direct mode (the user is
-  // both playing and listening on the same device with their own
-  // files).
-  if (state.mode !== "direct") {
-    setMode("direct");
-    state.els.qrArea.hidden = true;
-  }
-
-  state.els.customFiles.hidden = false;
-  state.els.playerArea.innerHTML = `
-    <div class="custom-instructions">
-      <p>Use the file pickers above to load:</p>
-      <ol>
-        <li>A media file (any format your browser can play)</li>
-        <li>A subtitle file (optional, SRT or VTT)</li>
-        <li>An AFS file (optional — one will be generated if not provided)</li>
-      </ol>
-      <p>Files never leave your device. Generated AFS files can be
-      downloaded for later use or sharing.</p>
-      <div id="custom-status"></div>
-      <div class="subtitle-track subtitle-large" id="custom-subtitle"></div>
-    </div>
-  `;
-
-  document
-    .getElementById("custom-media")
-    .addEventListener("change", handleCustomMedia);
-  document
-    .getElementById("custom-srt")
-    .addEventListener("change", handleCustomSrt);
-  document
-    .getElementById("custom-afs")
-    .addEventListener("change", handleCustomAfs);
-}
-
-let customMediaFile = null;
-let customSrtFile = null;
-let customAfsBlob = null;
-let customSubtitleRenderer = null;
-
-async function handleCustomMedia(e) {
-  customMediaFile = e.target.files[0];
-  await maybeStartCustom();
-}
-
-async function handleCustomSrt(e) {
-  customSrtFile = e.target.files[0];
-  if (customSubtitleRenderer && customSrtFile) {
-    const text = await customSrtFile.text();
-    customSubtitleRenderer.cues = parseSRT(text);
-    customSubtitleRenderer.update();
-  } else {
-    await maybeStartCustom();
-  }
-}
-
-async function handleCustomAfs(e) {
-  customAfsBlob = e.target.files[0];
-  await maybeStartCustom();
-}
-
-async function maybeStartCustom() {
-  if (!customMediaFile) return;
-  const statusEl = document.getElementById("custom-status");
-
-  // Stop any prior session so the user can replace their files.
-  if (state.session) {
-    state.session.stop();
-    state.session = null;
-    stopRafLoop();
-  }
-
-  // Build a playback element.
-  const mediaUrl = URL.createObjectURL(customMediaFile);
-  const isVideo = customMediaFile.type.startsWith("video/");
-  statusEl.innerHTML = "";
-  const el = document.createElement(isVideo ? "video" : "audio");
-  el.controls = true;
-  el.src = mediaUrl;
-  el.preload = "metadata";
-  el.playsInline = true;
-  statusEl.appendChild(el);
-
-  let afsBlob = customAfsBlob;
-  if (!afsBlob) {
-    const genStatus = document.createElement("p");
-    genStatus.id = "gen-status";
-    genStatus.textContent =
-      "generating AFS file from your media (this may take a moment)...";
-    statusEl.appendChild(genStatus);
-    setStatus("generating AFS file…", "warn");
-    try {
-      afsBlob = await generateAFSFromFile(customMediaFile);
-      genStatus.remove();
-      const link = document.createElement("p");
-      const dlUrl = URL.createObjectURL(afsBlob);
-      link.innerHTML = `AFS ready. <a href="${dlUrl}" download="${stripExtension(customMediaFile.name)}.afs">Download .afs</a>`;
-      statusEl.appendChild(link);
-    } catch (err) {
-      genStatus.textContent = `AFS generation failed: ${err.message}`;
-      setStatus(`error: ${err.message}`, "error");
-      return;
-    }
-  }
-
-  // Read the AFS as text and feed to a session.
-  const afsText = await afsBlob.text();
-  const blobUrl = URL.createObjectURL(
-    new Blob([afsText], { type: "text/plain" }),
-  );
-
-  // Set up the subtitle renderer if an SRT was provided.
-  let cues = [];
-  if (customSrtFile) {
-    cues = parseSRT(await customSrtFile.text());
-  }
-  customSubtitleRenderer = new SubtitleRenderer(
-    document.getElementById("custom-subtitle"),
-    cues,
-  );
-  customSubtitleRenderer.setUseAfs(true);
-
-  const session = new DemoSession({
-    onPosition: (timeMs) => {
-      customSubtitleRenderer.setAfsTimeMs(timeMs);
-    },
-  });
-  state.session = session;
-  bindSessionStatus(session);
-  await session.loadAFS(blobUrl);
-  await session.startDirect(el);
-}
-
-// generateAFSFromFile: decode audio, fingerprint, return an AFS blob.
-//
-// Uses the browser's AudioContext.decodeAudioData for decoding, then
-// the WASM chromaprint module (or mockFingerprint until WASM is wired
-// up). Returns a Blob containing the AFS file content.
-async function generateAFSFromFile(file) {
-  const arrayBuffer = await file.arrayBuffer();
-  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-
-  // Downmix to mono and resample to 11025 Hz.
-  const targetRate = 11025;
-  const sourceRate = audioBuffer.sampleRate;
-  const numChannels = audioBuffer.numberOfChannels;
-  const length = audioBuffer.length;
-  // Downmix.
-  const mono = new Float32Array(length);
-  for (let c = 0; c < numChannels; c++) {
-    const ch = audioBuffer.getChannelData(c);
-    for (let i = 0; i < length; i++) mono[i] += ch[i] / numChannels;
-  }
-  // Resample.
-  const ratio = sourceRate / targetRate;
-  const resampledLength = Math.floor(length / ratio);
-  const resampled = new Float32Array(resampledLength);
-  for (let i = 0; i < resampledLength; i++) {
-    const srcPos = i * ratio;
-    const idx = Math.floor(srcPos);
-    const frac = srcPos - idx;
-    const a = mono[idx] ?? 0;
-    const b = mono[idx + 1] ?? a;
-    resampled[i] = a + (b - a) * frac;
-  }
-
-  // Fingerprint. mockFingerprint is used until chromaprint-wasm is
-  // wired in chromaprint.js; the call site is the same so swapping
-  // is a one-line change.
-  const hashes = mockFingerprint(resampled);
-
-  const afsText = writeAFS(hashes, {
-    audio: {
-      sample_rate_hz: sourceRate,
-      channels: numChannels,
-    },
-    source: {
-      title: stripExtension(file.name),
-      duration_ms: Math.round((length / sourceRate) * 1000),
-    },
-  });
-  audioContext.close().catch(() => {});
-  return new Blob([afsText], { type: "text/plain" });
-}
-
-function stripExtension(name) {
-  return name.replace(/\.[^.]+$/, "");
-}
 
 // -----------------------------------------------------------------------
 // Demo dispatch
@@ -988,8 +923,8 @@ function stripExtension(name) {
 
 const demos = {
   "desync-video": startDesyncVideoDemo,
+  karaoke: startKaraokeDemo,
   haptics: startHapticsDemo,
-  custom: startCustomDemo,
 };
 
 // -----------------------------------------------------------------------
@@ -1024,15 +959,9 @@ async function startSelectedDemo() {
   // update the status as it loads / waits for play / locks on.
   setStatus("idle");
 
-  // QR is available on every built-in demo as a "try on your phone"
-  // affordance. The custom-files demo uses user-uploaded files so a
-  // QR pointing the phone at this device wouldn't make sense.
-  if (state.demoId !== "custom") {
-    state.els.qrArea.hidden = false;
-    renderQRCodeForCurrentDemo();
-  } else {
-    state.els.qrArea.hidden = true;
-  }
+  // QR is available on every demo as a "try on your phone" affordance.
+  state.els.qrArea.hidden = false;
+  renderQRCodeForCurrentDemo();
 
   const handler = demos[state.demoId];
   if (!handler) {
@@ -1055,7 +984,6 @@ function stopCurrentDemo() {
     state.session = null;
   }
   state.els.playerArea.innerHTML = "";
-  state.els.customFiles.hidden = true;
   state.els.qrArea.hidden = true;
 }
 
@@ -1089,7 +1017,6 @@ function init() {
     qrArea: document.getElementById("qr-area"),
     qrCode: document.getElementById("qr-code"),
     qrLink: document.getElementById("qr-link"),
-    customFiles: document.getElementById("custom-files"),
   };
 
   // Click on a demo tab: activate it and start it. The click itself

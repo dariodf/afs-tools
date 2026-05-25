@@ -35,9 +35,15 @@ demo/content/*.ogg
 !demo/content/dialogue-clip-edited.mp4
 !demo/content/cannon-shot.mp4
 !demo/content/overture-finale.mp3
+!demo/content/silent-night.mp3
 
 # Local tool version pins (asdf/mise) — environment-specific
 .tool-versions
+
+# Python virtualenvs (e.g. for WhisperX in tools/transcribe-generate)
+.venv*/
+__pycache__/
+*.pyc
 
 # Logs
 *.log
