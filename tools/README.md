@@ -14,5 +14,8 @@ lives in its own subdirectory with focused documentation:
   subtitle coverage windows. Useful for sparse-cue content and
   for distributing AFS files outside HTTP.
 
-System dependencies (`ffmpeg`, `fpcalc` from chromaprint, etc.)
-are documented in the top-level [README](../README.md#system-binaries).
+System dependencies live in the per-tool READMEs. `afs-generate`
+needs `ffmpeg` + `fpcalc` from chromaprint;
+[`afs-generate/`](./afs-generate/#install) has install commands
+for the common platforms. `transcribe-generate` adds Python +
+WhisperX; see [`transcribe-generate/`](./transcribe-generate/).

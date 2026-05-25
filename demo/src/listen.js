@@ -51,12 +51,8 @@ const els = {
   startBtn: document.getElementById("listen-start"),
   waveform: document.getElementById("listen-waveform"),
   pick: document.getElementById("listen-pick"),
-  pickAfsRow: document.getElementById("listen-pick-afs-row"),
   pickAfs: document.getElementById("listen-pick-afs"),
-  pickSrtRow: document.getElementById("listen-pick-srt-row"),
   pickSrt: document.getElementById("listen-pick-srt"),
-  pickTitleRow: document.getElementById("listen-pick-title-row"),
-  pickTitle: document.getElementById("listen-pick-title"),
   pickStatus: document.getElementById("listen-pick-status"),
 };
 
@@ -79,126 +75,89 @@ function setStatus(text) {
   els.status.textContent = text;
 }
 
-// Mode dispatch. Each of three inputs (AFS, SRT, title) can come
-// from a URL query parameter or from the in-page picker; the modes
-// mix freely. Layout follows: pre-resolve whatever was provided in
-// the URL, hide those rows of the picker, leave the rest visible.
-// If everything's provided, the picker is hidden entirely.
+// Mode dispatch. URL-launched flow (`?afs=…&srt=…`) and the
+// local-file-picker flow are kept fully separate now: the AFS and
+// SRT only make sense as a pair (a random AFS plus the wrong SRT
+// is useless), so we don't accept partial URL parameters. Either
+// both URL params are present and we hide the picker, or one or
+// both are missing and we ignore any URL params and show both
+// file pickers.
 //
-// Per-slot state. needsX = true means "the picker row is visible
-// and the user must still supply this". The Start button stays
-// hidden while any slot still needs supplying.
-let needsAfs = !AFS_URL_PARAM;
-let needsSrt = !SRT_URL_PARAM;
+// The ?title= URL parameter is independent — it just sets the
+// displayed title and is still respected in either mode.
 
-function maybeHidePicker() {
-  if (!needsAfs && !needsSrt) {
-    els.pick.hidden = true;
-    els.startBtn.hidden = false;
-    els.pickStatus.textContent = "";
-    setStatus("tap to listen");
-  } else {
-    els.pick.hidden = false;
-    els.startBtn.hidden = true;
-    updatePickerStatus();
-  }
+let pickedAfsFile = null;
+let pickedSrtFile = null;
+
+function showPicker(initialMessage) {
+  els.pick.hidden = false;
+  els.startBtn.hidden = true;
+  if (initialMessage) els.pickStatus.textContent = initialMessage;
+  setStatus("pick your files");
 }
 
-function updatePickerStatus() {
-  if (needsAfs && needsSrt) {
-    els.pickStatus.textContent = "Add an AFS file and a subtitle file.";
-  } else if (needsAfs) {
-    els.pickStatus.textContent = "Add an AFS file to continue.";
-  } else if (needsSrt) {
-    els.pickStatus.textContent = "Add a subtitle file to continue.";
-  } else {
-    els.pickStatus.textContent = "";
+function maybeFinishPicking() {
+  if (!pickedAfsFile || !pickedSrtFile) {
+    els.pickStatus.textContent = !pickedAfsFile
+      ? "Add an AFS file to continue."
+      : "Add a subtitle file to continue.";
+    return;
   }
-  setStatus(els.pick.hidden ? "tap to listen" : "pick your files");
+  // Both files in hand; commit them.
+  afsUrl = URL.createObjectURL(pickedAfsFile);
+  // The displayed title comes from ?title= when set, otherwise the
+  // AFS file's basename.
+  if (!TITLE_PARAM) {
+    els.sourceTitle.textContent =
+      pickedAfsFile.name.replace(/\.[^.]+$/, "");
+  }
+  els.pick.hidden = true;
+  els.startBtn.hidden = false;
+  els.pickStatus.textContent = "";
+  setStatus("tap to listen");
 }
 
-// AFS slot — URL value just gets stored; we don't fetch until Start
-// (session.loadAFS does the fetch). Filling slot from a picker file
-// means making a blob URL.
-async function resolveAfsFromPicker(file) {
-  afsUrl = URL.createObjectURL(file);
-  needsAfs = false;
-  els.pickAfsRow.hidden = true;
-  // Default the displayed title to the picked AFS file's stem if
-  // ?title= wasn't supplied and the user didn't type one.
-  if (!TITLE_PARAM && !els.pickTitle.value.trim()) {
-    els.sourceTitle.textContent = file.name.replace(/\.[^.]+$/, "");
-  }
-  maybeHidePicker();
-}
-
-// SRT slot — local file is read straight to text. URL value is
-// fetched here so a missing/wrong URL surfaces an error at boot
-// rather than after the user taps Start.
-async function resolveSrtFromUrl(srtUrlStr) {
+async function preloadFromUrl(afsUrlStr, srtUrlStr) {
+  setStatus("loading subtitles…");
   const srtText = await fetch(srtUrlStr).then((r) => {
     if (!r.ok) throw new Error(`SRT ${r.status} (${srtUrlStr})`);
     return r.text();
   });
   cues = parseSRT(srtText);
+  afsUrl = afsUrlStr;
+  els.pick.hidden = true;
+  els.startBtn.hidden = false;
+  setStatus("tap to listen");
 }
 
-async function resolveSrtFromPicker(file) {
-  const srtText = await file.text();
-  cues = parseSRT(srtText);
-  needsSrt = false;
-  els.pickSrtRow.hidden = true;
-  maybeHidePicker();
-}
-
-// Pre-resolve URL-provided slots; show / hide picker rows
-// accordingly. Title slot is purely cosmetic (display title);
-// preserve any existing input the user typed when re-evaluating.
-async function init() {
-  // AFS slot.
-  if (AFS_URL_PARAM) {
-    afsUrl = AFS_URL_PARAM;
-    els.pickAfsRow.hidden = true;
-  }
-  // Title slot — if URL supplied a title, drop the input row.
-  if (TITLE_PARAM) {
-    els.pickTitleRow.hidden = true;
-  }
-  // SRT slot. Done last because it's async (fetch + parse).
-  if (SRT_URL_PARAM) {
-    els.pickSrtRow.hidden = true;
+els.pickAfs.addEventListener("change", (e) => {
+  pickedAfsFile = e.target.files?.[0] || null;
+  maybeFinishPicking();
+});
+els.pickSrt.addEventListener("change", async (e) => {
+  const file = e.target.files?.[0] || null;
+  pickedSrtFile = file;
+  if (file) {
     try {
-      setStatus("loading subtitles…");
-      await resolveSrtFromUrl(SRT_URL_PARAM);
-    } catch (e) {
-      setState("error");
-      setStatus(`SRT load failed: ${e.message}`);
-      els.startBtn.hidden = true;
+      cues = parseSRT(await file.text());
+    } catch (err) {
+      els.pickStatus.textContent = `Couldn't read subtitle file: ${err.message}`;
+      pickedSrtFile = null;
       return;
     }
   }
-  maybeHidePicker();
+  maybeFinishPicking();
+});
+
+if (AFS_URL_PARAM && SRT_URL_PARAM) {
+  preloadFromUrl(AFS_URL_PARAM, SRT_URL_PARAM).catch((e) => {
+    setState("error");
+    setStatus(`load error: ${e.message}`);
+    els.startBtn.hidden = true;
+  });
+} else {
+  showPicker("");
 }
-
-els.pickAfs.addEventListener("change", async (e) => {
-  const f = e.target.files?.[0];
-  if (f) await resolveAfsFromPicker(f);
-});
-els.pickSrt.addEventListener("change", async (e) => {
-  const f = e.target.files?.[0];
-  if (!f) return;
-  try {
-    await resolveSrtFromPicker(f);
-  } catch (err) {
-    els.pickStatus.textContent = `Couldn't read subtitle file: ${err.message}`;
-  }
-});
-els.pickTitle.addEventListener("input", () => {
-  const v = els.pickTitle.value.trim();
-  if (v) els.sourceTitle.textContent = v;
-});
-
-init();
 
 // Wall-clock-projected subtitle update. Between matcher ticks we
 // extrapolate the source position forward at 1.0 × wall time —
