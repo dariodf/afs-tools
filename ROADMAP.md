@@ -152,3 +152,75 @@ git worktree add ../afs-tools-landmark -b shazam-landmark
 
 When the experiment proves out, the branch becomes the next AFS
 release; not a separate project.
+
+---
+
+## Animated-QR file transfer between generate.html and listen.html
+
+**Status:** designed, deferred to v0.1.x. The flow works for the
+v0.1 release without it (users transfer AFS + SRT to their phone
+via AirDrop / email / Drive and pick the files locally on
+`listen.html`), but the animated-QR path would close the loop
+inside the browser with no out-of-band file transfer at all.
+
+### The pipeline
+
+1. **Generate page:** after the user drops media and the browser
+   produces the AFS, also accept an SRT (file picker). Zip the
+   pair, base64-encode, chunk into ~2 KB pieces with a header
+   (`[seq/total/crc]…`), render each chunk as a QR code and
+   cycle them on a timer. Progress UI shows frame K of N.
+
+2. **Listen page:** add a "Scan QR" affordance next to the file
+   pickers. Opens the device camera, runs `jsQR` per frame,
+   accumulates chunks (dedupe by sequence number, validate per-
+   chunk and overall CRC). Once all chunks are collected,
+   reassemble base64 → unzip → set the AFS + SRT as the loaded
+   pair → transition to listen mode.
+
+### Effort estimate
+
+- **Simple sequential version:** ~1.5 days of focused work.
+  Scanner needs to catch one full animation cycle in order;
+  good enough for content under ~50 KB total zipped.
+- **Fountain-coded (LT codes) version:** ~3 days. Scanner can
+  miss frames and still reconstruct from any sufficient subset.
+  More robust but the LT decoder is ~150 LOC.
+
+Add two vendored deps (NOTICE entries each):
+- A zip lib like `fflate` (~30 KB, MIT)
+- `jsQR` (~100 KB, MIT)
+
+### Practical size ceiling
+
+A 2 953-byte QR holds ~2 KB after error correction overhead.
+At 4 fps animation:
+- Karaoke / short clips (≤ 10 KB zipped) → ~5 frames → 1-2 s of
+  scanning. Magical.
+- Short films, 30 min recordings (≤ 50 KB) → 25 frames → ~6 s.
+  Workable.
+- Sparse-SRT feature films (≤ 200 KB) → ~100 frames → ~25 s.
+  Tedious but possible.
+- Full feature with SDH SRT (~600 KB) → ~300 frames → over a
+  minute. Past the patience cliff; the magic is gone.
+
+A practical limit warning on the generate page ("zip is N KB,
+expect ~M seconds of scanning") sets honest expectations.
+
+### Known risks before starting
+
+- `getUserMedia` for the camera has the same secure-context
+  requirement as the mic; phone over LAN IP over plain HTTP
+  won't work.
+- Phone decode rate varies wildly by hardware + lighting; a
+  flagship in good light handles 30 fps, an older phone in
+  dim light handles 5-10 fps.
+- iOS Safari has quirks around `getUserMedia` on first load
+  and when the page is backgrounded; known mitigations but
+  small UI work.
+
+### Recommended path when picked up
+
+Start with the simple-sequential version (1.5 days), ship it,
+see how people actually use it. Add fountain coding only if
+dropped-frame failure becomes a real complaint.
