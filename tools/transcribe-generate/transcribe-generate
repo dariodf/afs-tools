@@ -51,7 +51,10 @@ QUIET=0
 INPUT=""
 
 usage() {
-  sed -n 's/^# \?//;1,/^$/p' "$0" | tail -n +2
+  # awk is portable across BSD/GNU here; sed's `1,/^$/p` evaluates
+  # its address against the pattern space, so GNU sed ends the
+  # range as soon as `# ` lines are rewritten to empty.
+  awk '/^[^#]/{exit} {sub(/^# ?/, ""); print}' "$0" | tail -n +2
 }
 
 log() {

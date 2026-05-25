@@ -34,7 +34,12 @@ DURATION_MS=""
 GENERATOR_NAME="afs-format 0.1.0"
 
 usage() {
-  sed -n 's/^# \?//;1,/^$/p' "$0" | tail -n +2
+  # Print the top-of-file comment block as help. awk-based rather
+  # than sed because BSD sed and GNU sed differ on whether
+  # `1,/^$/p` evaluates the address against the post-substitution
+  # pattern space (GNU does, terminating early once `# ` lines are
+  # rewritten to empty). awk's semantics are uniform.
+  awk '/^[^#]/{exit} {sub(/^# ?/, ""); print}' "$0" | tail -n +2
 }
 
 while [[ $# -gt 0 ]]; do
