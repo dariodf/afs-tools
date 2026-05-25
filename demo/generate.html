@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Generate AFS — Audio Fingerprint Sync</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0a0a0c" />
+    <meta
+      name="description"
+      content="Generate an AFS file for your own media — runs entirely in your browser. The resulting .afs lets any device follow your media by listening via microphone."
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body class="generate-body">
+    <main class="generate-stage">
+      <header class="generate-header">
+        <a href="index.html" class="generate-back" aria-label="Back to AFS demo">
+          ← <span>AFS</span>
+        </a>
+        <h1 class="generate-title">Make an AFS for your own media</h1>
+        <p class="generate-lede">
+          Drop an audio or video file. Your browser fingerprints it locally —
+          nothing uploads. You get a small <code>.afs</code> file to pair
+          with your subtitles, so any second device can follow along by
+          listening.
+        </p>
+      </header>
+
+      <section
+        class="generate-drop"
+        id="generate-drop"
+        tabindex="0"
+        aria-label="Drop media file here, or click to browse"
+      >
+        <input
+          type="file"
+          id="generate-input"
+          accept="audio/*,video/*"
+          hidden
+        />
+        <div class="generate-drop-visual" aria-hidden="true">∿</div>
+        <div class="generate-drop-text">
+          <strong>Drop a media file</strong>
+          <span>or click to browse — audio or video, any format your browser plays</span>
+        </div>
+      </section>
+
+      <section class="generate-progress" id="generate-progress" hidden>
+        <div class="generate-progress-label" id="generate-progress-label">
+          Working…
+        </div>
+        <div class="generate-progress-bar" aria-hidden="true">
+          <div
+            class="generate-progress-fill"
+            id="generate-progress-fill"
+          ></div>
+        </div>
+      </section>
+
+      <section class="generate-result" id="generate-result" hidden>
+        <h2 class="generate-result-heading">Done</h2>
+        <dl class="generate-result-meta">
+          <dt>File</dt>
+          <dd id="generate-meta-name">—</dd>
+          <dt>Duration</dt>
+          <dd id="generate-meta-duration">—</dd>
+          <dt>Hashes</dt>
+          <dd id="generate-meta-hashes">—</dd>
+          <dt>SHA-256</dt>
+          <dd id="generate-meta-sha256" class="generate-meta-mono">—</dd>
+        </dl>
+        <a
+          class="generate-download"
+          id="generate-download"
+          download="output.afs"
+          href="#"
+        >Download .afs</a>
+        <p class="generate-next">
+          Send the <code>.afs</code> to your phone alongside your subtitle
+          file (any transfer works — AirDrop, Drive, email).
+          Then on the phone open
+          <a href="listen.html" class="generate-listen-link">listen.html</a>
+          and pick both files from local storage.
+        </p>
+      </section>
+
+      <section class="generate-error" id="generate-error" hidden>
+        <p id="generate-error-text">Something went wrong.</p>
+      </section>
+
+      <footer class="generate-foot">
+        <p>
+          Runs locally with the same chromaprint WebAssembly the demo uses.
+          For batch jobs or scripts, use
+          <code>tools/afs-generate</code> from the
+          <a href="https://github.com/dariodf/afs-tools">CLI</a>.
+        </p>
+      </footer>
+    </main>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "smol-toml": "./vendor/smol-toml/index.js",
+          "@unimusic/chromaprint/dist/chromaprint.js": "./vendor/@unimusic/chromaprint/chromaprint.js"
+        }
+      }
+    </script>
+    <script type="module" src="src/generate.js"></script>
+  </body>
+</html>

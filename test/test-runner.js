@@ -25,6 +25,7 @@ import {
 } from "../demo/src/chromaprint.js";
 import { SubtitleRenderer } from "../demo/src/subtitle-renderer.js";
 import { HapticsEventManager } from "../demo/src/haptics-events.js";
+import { downmixToMono } from "../demo/src/audio-utils.js";
 
 let passed = 0;
 let failed = 0;
@@ -998,6 +999,155 @@ test("HapticsEventManager: small backward drift does NOT trigger auto-replay", (
   assertEqual(fired.length, 1, "no re-fire");
 });
 
+
+// -----------------------------------------------------------------------
+// audio-utils: downmix helper used by the browser-side AFS generator
+// (demo/src/generate.js). The DOM- and WebAudio-side of generate.js
+// can't be exercised in Node, but the pure-JS downmix can be; this
+// is the only piece of new logic in generate.js that isn't covered
+// by writeAFS / parseAFS / matcher tests already.
+// -----------------------------------------------------------------------
+
+function fakeAudioBuffer(channelsData) {
+  // Build a duck-typed AudioBuffer-like object from one Float32Array
+  // per channel. Mirrors the shape AudioContext.decodeAudioData()
+  // returns; downmixToMono only uses these three properties.
+  return {
+    numberOfChannels: channelsData.length,
+    length: channelsData[0]?.length ?? 0,
+    getChannelData: (c) => channelsData[c],
+  };
+}
+
+test("downmixToMono: mono passthrough preserves samples exactly", () => {
+  const src = new Float32Array([0, 0.25, -0.5, 1.0, -1.0]);
+  const mono = downmixToMono(fakeAudioBuffer([src]));
+  assertEqual(mono.length, 5);
+  for (let i = 0; i < src.length; i++) {
+    assertEqual(mono[i], src[i], `sample ${i}`);
+  }
+});
+
+test("downmixToMono: stereo averages the two channels", () => {
+  const L = new Float32Array([1.0, 0.5, -1.0, 0.0]);
+  const R = new Float32Array([0.0, 0.5,  1.0, 0.0]);
+  const mono = downmixToMono(fakeAudioBuffer([L, R]));
+  assertEqual(mono.length, 4);
+  // Each output sample = (L + R) / 2
+  assertEqual(mono[0], 0.5, "i=0");
+  assertEqual(mono[1], 0.5, "i=1");
+  assertEqual(mono[2], 0.0, "i=2");
+  assertEqual(mono[3], 0.0, "i=3");
+});
+
+test("downmixToMono: 5.1 averages all six channels", () => {
+  // Six channels, each constant at a distinct value. Mono output
+  // should be the average. Using small powers of two keeps the
+  // float math exact.
+  const channels = [0.5, 0.25, 0.125, 0.0625, 0.03125, 0.015625].map(
+    (v) => new Float32Array([v, v, v]),
+  );
+  const expected = channels.reduce((s, c) => s + c[0], 0) / channels.length;
+  const mono = downmixToMono(fakeAudioBuffer(channels));
+  assertEqual(mono.length, 3);
+  for (let i = 0; i < 3; i++) {
+    assertEqual(mono[i], expected, `sample ${i}`);
+  }
+});
+
+test("downmixToMono: empty buffer returns empty Float32Array", () => {
+  const mono = downmixToMono(fakeAudioBuffer([new Float32Array(0)]));
+  assertEqual(mono.length, 0);
+});
+
+// -----------------------------------------------------------------------
+// generate.js round-trip (no WASM): same wiring the browser uses,
+// but with mockFingerprint standing in for the real chromaprint WASM
+// (which can't run in Node). Validates: downmix → fingerprint →
+// writeAFS → parseAFS round-trips, and the matcher can lock onto
+// the output. Catches bugs in the AFS metadata shape generate.js
+// emits and in the assumed contract between writeAFS and parseAFS.
+// -----------------------------------------------------------------------
+
+test("generate.js pipeline (mock fingerprint): round-trips through writeAFS → parseAFS → matcher", () => {
+  // Build a 6-second pseudo-random stereo "audio" buffer. Stereo so
+  // the downmix step actually does something; random so the mock
+  // fingerprinter (XOR of sample blocks) produces a distinctive hash
+  // sequence rather than all zeros.
+  const sampleRate = 11025;
+  const lengthSamples = sampleRate * 6;
+  const L = new Float32Array(lengthSamples);
+  const R = new Float32Array(lengthSamples);
+  let seed = 0x12345678;
+  for (let i = 0; i < lengthSamples; i++) {
+    // xorshift32 → [-1, 1)
+    seed ^= seed << 13; seed >>>= 0;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;  seed >>>= 0;
+    L[i] = (seed / 0xffffffff) * 2 - 1;
+    seed ^= seed << 13; seed >>>= 0;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;  seed >>>= 0;
+    R[i] = (seed / 0xffffffff) * 2 - 1;
+  }
+  const buf = fakeAudioBuffer([L, R]);
+
+  // Same pipeline order as generate.js (minus the WASM call).
+  const mono = downmixToMono(buf);
+  const hashes = mockFingerprint(mono);
+  if (hashes.length < 16) {
+    throw new Error(
+      `expected at least 16 hashes from 6 s of audio, got ${hashes.length}`,
+    );
+  }
+
+  const afsText = writeAFS(hashes, {
+    audio: {
+      sample_rate_hz: sampleRate,
+      channels: 2,
+    },
+    source: {
+      title: "generate-test-fixture",
+      duration_ms: Math.round((lengthSamples / sampleRate) * 1000),
+      sha256: "a".repeat(64),
+    },
+  });
+
+  // Parse back and verify the metadata generate.js emits round-trips
+  // through parseAFS unchanged.
+  const parsed = parseAFS(afsText);
+  assertEqual(parsed.algorithm, "chromaprint");
+  assertEqual(parsed.metadata.audio.sample_rate_hz, sampleRate);
+  assertEqual(parsed.metadata.audio.channels, 2);
+  assertEqual(parsed.metadata.source.title, "generate-test-fixture");
+  assertEqual(
+    parsed.metadata.source.duration_ms,
+    Math.round((lengthSamples / sampleRate) * 1000),
+  );
+  assertEqual(parsed.metadata.source.sha256, "a".repeat(64));
+
+  const { hashes: parsedHashes, times } = chromaprintArrays(parsed);
+  assertEqual(parsedHashes.length, hashes.length, "hash count round-trip");
+  // Spot-check first and last hash survive the text round-trip.
+  assertEqual(parsedHashes[0], hashes[0], "first hash round-trip");
+  assertEqual(parsedHashes[parsedHashes.length - 1], hashes[hashes.length - 1], "last hash round-trip");
+
+  // Feed the source hashes back through the matcher. Same buffer in,
+  // same buffer out → matcher should lock onto time 0 with high
+  // confidence. Standard self-match sanity check.
+  const matcher = new AFSMatcher(parsedHashes, times, {
+    enterThreshold: 75,
+    coldStartMinHashes: 8,
+  });
+  const result = matcher.step(hashes, 0);
+  if (!result) throw new Error("matcher returned null on round-trip");
+  if (result.ambiguous) throw new Error("matcher ambiguous on perfect round-trip");
+  if (result.time_ms > 500) {
+    throw new Error(
+      `matcher locked at ${result.time_ms} ms, expected ~0 ms`,
+    );
+  }
+});
 
 // -----------------------------------------------------------------------
 // Summary

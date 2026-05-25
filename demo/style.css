@@ -1492,3 +1492,341 @@ footer > p:first-child {
   min-width: 7rem;
   text-align: center;
 }
+
+/* -----------------------------------------------------------------------
+   listen.html: file-picker fallback
+   Shown when listen.html is opened with no afs= / srt= URL params.
+   ----------------------------------------------------------------------- */
+
+.listen-pick {
+  background: rgba(245, 245, 247, 0.06);
+  border: 1px solid rgba(245, 245, 247, 0.14);
+  border-radius: 8px;
+  padding: var(--s-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  width: min(28rem, 100%);
+  margin: var(--s-5) auto;
+  color: #ebe5d3;
+}
+
+.listen-pick-heading {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.25rem;
+  margin: 0;
+  font-variation-settings: "opsz" 30, "SOFT" 40;
+}
+
+.listen-pick-lede {
+  margin: 0;
+  font-size: 0.875rem;
+  color: rgba(235, 229, 211, 0.7);
+  line-height: 1.5;
+}
+.listen-pick-lede a { color: inherit; text-decoration: underline; }
+
+.listen-pick-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(235, 229, 211, 0.6);
+}
+.listen-pick-field input {
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #ebe5d3;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(245, 245, 247, 0.18);
+  border-radius: 4px;
+  padding: var(--s-2) var(--s-3);
+}
+.listen-pick-field input[type="file"] {
+  cursor: pointer;
+}
+.listen-pick-field input[type="file"]::file-selector-button {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: var(--s-1) var(--s-3);
+  margin-right: var(--s-3);
+  background: rgba(245, 245, 247, 0.12);
+  color: #ebe5d3;
+  border: 1px solid rgba(245, 245, 247, 0.22);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.listen-pick-field input[type="file"]::file-selector-button:hover {
+  background: rgba(245, 245, 247, 0.2);
+}
+
+.listen-pick-status {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: rgba(235, 229, 211, 0.65);
+  min-height: 1em;
+}
+
+/* -----------------------------------------------------------------------
+   Generate page (demo/generate.html)
+   Drag-drop a media file, get an AFS to download. Standalone page, no
+   QR area, no playback. Shares the project's type system + colors.
+   ----------------------------------------------------------------------- */
+
+.generate-body {
+  background: var(--bg);
+  color: var(--fg);
+  min-height: 100vh;
+  padding: var(--s-5);
+  font-family: var(--font-body);
+}
+
+.generate-stage {
+  max-width: 44rem;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-6);
+}
+
+.generate-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.generate-back {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  text-decoration: none;
+  width: max-content;
+}
+.generate-back:hover { color: var(--fg); }
+.generate-back span {
+  border-bottom: 1px dotted currentColor;
+}
+
+.generate-title {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(1.75rem, 4vw, 2.75rem);
+  line-height: 1.15;
+  margin: 0;
+  letter-spacing: -0.02em;
+  font-variation-settings: "opsz" 60, "SOFT" 60;
+}
+
+.generate-lede {
+  color: var(--fg-dim);
+  max-width: 36rem;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.generate-lede code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  padding: 0.05em 0.3em;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 3px;
+}
+
+/* Drop zone — dashed border, the project's sigil character at the
+   top, click-through to the hidden <input type="file">. */
+.generate-drop {
+  border: 2px dashed var(--rule);
+  border-radius: 6px;
+  padding: var(--s-7) var(--s-5);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  align-items: center;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease;
+  outline: none;
+}
+.generate-drop:hover,
+.generate-drop:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.generate-drop.dragover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.generate-drop.busy {
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.generate-drop-visual {
+  font-family: var(--font-display);
+  font-size: 3rem;
+  line-height: 1;
+  color: var(--accent);
+  font-variation-settings: "opsz" 144;
+}
+
+.generate-drop-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.generate-drop-text strong {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.25rem;
+  font-variation-settings: "opsz" 30;
+}
+.generate-drop-text span {
+  color: var(--fg-dim);
+  font-size: 0.9375rem;
+}
+
+/* Progress bar — single fill that grows from 0 to 100 % across the
+   processing pipeline. Labels swap as we cross stage boundaries. */
+.generate-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.generate-progress-label {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+.generate-progress-bar {
+  height: 6px;
+  background: var(--rule-soft);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.generate-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  width: 0%;
+  transition: width 200ms ease;
+}
+
+/* Result block: metadata + the headline download button + a next-step
+   tip pointing to listen.html. */
+.generate-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding: var(--s-5);
+  background: var(--bg-elevated);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+}
+
+.generate-result-heading {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.5rem;
+  margin: 0;
+  font-variation-settings: "opsz" 30, "SOFT" 40;
+}
+
+.generate-result-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--s-2) var(--s-4);
+  margin: 0;
+  font-size: 0.9375rem;
+}
+.generate-result-meta dt {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  align-self: center;
+}
+.generate-result-meta dd {
+  margin: 0;
+  color: var(--fg);
+  word-break: break-all;
+}
+.generate-meta-mono {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.generate-download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-3) var(--s-5);
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  border-radius: 4px;
+  width: max-content;
+  transition: background 150ms ease;
+}
+.generate-download:hover {
+  background: var(--accent-hover);
+}
+
+.generate-next {
+  margin: 0;
+  color: var(--fg-dim);
+  font-size: 0.9375rem;
+  line-height: 1.55;
+}
+.generate-next code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  padding: 0.05em 0.3em;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 3px;
+}
+.generate-listen-link {
+  color: var(--accent);
+}
+
+.generate-error {
+  padding: var(--s-4);
+  background: rgba(168, 50, 50, 0.08);
+  border-left: 3px solid var(--status-error);
+  border-radius: 0 4px 4px 0;
+  color: var(--status-error);
+  font-size: 0.9375rem;
+}
+
+.generate-foot {
+  color: var(--fg-muted);
+  font-size: 0.8125rem;
+  border-top: 1px solid var(--rule-soft);
+  padding-top: var(--s-4);
+}
+.generate-foot code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+.generate-foot a {
+  color: var(--fg-dim);
+}

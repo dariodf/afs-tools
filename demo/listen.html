@@ -19,6 +19,40 @@
         <div class="listen-status" id="listen-status">tap to listen</div>
       </header>
 
+      <!--
+        Pick-files panel: shown when listen.html is opened without
+        afs= / srt= URL parameters. Lets the user load locally-stored
+        files from their device (the canonical "I generated my own
+        AFS, now I want to use it" path). Hidden once the user picks
+        files or when URL params are present.
+      -->
+      <section class="listen-pick" id="listen-pick" hidden>
+        <h2 class="listen-pick-heading">Load your own files</h2>
+        <p class="listen-pick-lede">
+          Generated an AFS on
+          <a href="generate.html">generate.html</a>?
+          Pick it here along with your subtitle file to listen.
+        </p>
+        <label class="listen-pick-field">
+          <span>AFS file</span>
+          <input type="file" id="listen-pick-afs" accept=".afs,text/plain" />
+        </label>
+        <label class="listen-pick-field">
+          <span>Subtitle file</span>
+          <input type="file" id="listen-pick-srt" accept=".srt,.vtt,text/plain" />
+        </label>
+        <label class="listen-pick-field">
+          <span>Title (optional)</span>
+          <input
+            type="text"
+            id="listen-pick-title"
+            placeholder="My movie"
+            autocomplete="off"
+          />
+        </label>
+        <p class="listen-pick-status" id="listen-pick-status"></p>
+      </section>
+
       <div class="listen-subtitle" id="listen-subtitle">
         <span class="listen-subtitle-text" id="listen-subtitle-text"></span>
       </div>

@@ -32,9 +32,15 @@ import { DemoSession } from "./demo-session.js";
 import { MicWaveform } from "./mic-waveform.js";
 
 const params = new URLSearchParams(window.location.search);
-const AFS_URL = params.get("afs");
-const SRT_URL = params.get("srt");
-const TITLE = params.get("title") ?? "AFS Listen";
+const AFS_URL_PARAM = params.get("afs");
+const SRT_URL_PARAM = params.get("srt");
+const TITLE_PARAM = params.get("title");
+
+// Resolved at preload time. In URL-param mode these are set up front
+// from the query string; in file-picker mode they're filled in from
+// the user's <input type="file"> selection.
+let afsUrl = AFS_URL_PARAM;
+let cues = null;
 
 const els = {
   stage: document.getElementById("listen-stage"),
@@ -44,6 +50,11 @@ const els = {
   subtitleText: document.getElementById("listen-subtitle-text"),
   startBtn: document.getElementById("listen-start"),
   waveform: document.getElementById("listen-waveform"),
+  pick: document.getElementById("listen-pick"),
+  pickAfs: document.getElementById("listen-pick-afs"),
+  pickSrt: document.getElementById("listen-pick-srt"),
+  pickTitle: document.getElementById("listen-pick-title"),
+  pickStatus: document.getElementById("listen-pick-status"),
 };
 
 // Fixed subtitle lead — show the cue ~100 ms earlier than the
@@ -55,7 +66,7 @@ const els = {
 // that. Override only via ?lead=N for debugging.
 const SUBTITLE_LEAD_MS = Number(params.get("lead") ?? 100) || 100;
 
-els.sourceTitle.textContent = TITLE;
+els.sourceTitle.textContent = TITLE_PARAM ?? "AFS Listen";
 
 function setState(state) {
   els.stage.dataset.state = state;
@@ -65,37 +76,86 @@ function setStatus(text) {
   els.status.textContent = text;
 }
 
-if (!AFS_URL || !SRT_URL) {
-  setState("error");
-  setStatus("missing afs= or srt= URL parameter");
-  els.subtitleText.textContent = "";
-  els.startBtn.hidden = true;
-  throw new Error(
-    "listen.js: AFS_URL and SRT_URL must both be provided as query parameters",
-  );
-}
-
-// Load resources up front so the "Start listening" click is just
-// the mic-gesture and matcher startup. Failures here surface
-// before the user is prompted for permission.
-let cues = null;
-async function preload() {
+// Mode dispatch. URL-param mode (?afs=… &srt=…) is the canonical
+// path for QR-launched companion sessions. File-picker mode is the
+// fallback for users who generated an AFS on generate.html and
+// transferred the file pair to their phone — open listen.html with
+// no params, pick the local files.
+async function preloadFromUrl(afsUrlStr, srtUrlStr) {
   setStatus("loading…");
-  const [srtText] = await Promise.all([
-    fetch(SRT_URL).then((r) => {
-      if (!r.ok) throw new Error(`SRT ${r.status} (${SRT_URL})`);
-      return r.text();
-    }),
-  ]);
+  const srtText = await fetch(srtUrlStr).then((r) => {
+    if (!r.ok) throw new Error(`SRT ${r.status} (${srtUrlStr})`);
+    return r.text();
+  });
   cues = parseSRT(srtText);
+  afsUrl = afsUrlStr;
   setStatus("tap to listen");
 }
 
-preload().catch((e) => {
-  setState("error");
-  setStatus(`load error: ${e.message}`);
+function showPicker() {
+  els.pick.hidden = false;
+  // Start button is hidden until both files are picked. Avoids the
+  // dead-click problem if the user taps it before selecting.
   els.startBtn.hidden = true;
-});
+  setStatus("pick your AFS + subtitle files");
+}
+
+function hidePicker() {
+  els.pick.hidden = true;
+  els.startBtn.hidden = false;
+}
+
+function updatePickerStatus() {
+  const hasAfs = !!els.pickAfs.files?.[0];
+  const hasSrt = !!els.pickSrt.files?.[0];
+  if (!hasAfs && !hasSrt) {
+    els.pickStatus.textContent = "";
+  } else if (!hasAfs) {
+    els.pickStatus.textContent = "Add an AFS file to continue.";
+  } else if (!hasSrt) {
+    els.pickStatus.textContent = "Add a subtitle file to continue.";
+  } else {
+    els.pickStatus.textContent = "Loading…";
+  }
+}
+
+async function tryLoadFromPicker() {
+  const afsFile = els.pickAfs.files?.[0];
+  const srtFile = els.pickSrt.files?.[0];
+  if (!afsFile || !srtFile) {
+    updatePickerStatus();
+    return;
+  }
+  updatePickerStatus();
+  try {
+    const srtText = await srtFile.text();
+    cues = parseSRT(srtText);
+    afsUrl = URL.createObjectURL(afsFile);
+    const title = els.pickTitle.value.trim() || afsFile.name.replace(/\.[^.]+$/, "");
+    els.sourceTitle.textContent = title;
+    els.pickStatus.textContent = "";
+    hidePicker();
+    setStatus("tap to listen");
+  } catch (e) {
+    els.pickStatus.textContent = `Couldn't read files: ${e.message}`;
+  }
+}
+
+els.pickAfs.addEventListener("change", tryLoadFromPicker);
+els.pickSrt.addEventListener("change", tryLoadFromPicker);
+
+if (AFS_URL_PARAM && SRT_URL_PARAM) {
+  // Canonical QR / link-launched flow.
+  preloadFromUrl(AFS_URL_PARAM, SRT_URL_PARAM).catch((e) => {
+    setState("error");
+    setStatus(`load error: ${e.message}`);
+    els.startBtn.hidden = true;
+  });
+} else {
+  // No URL params — show the file picker. No "error" state; this is
+  // the standalone-listener flow now.
+  showPicker();
+}
 
 // Wall-clock-projected subtitle update. Between matcher ticks we
 // extrapolate the source position forward at 1.0 × wall time —
@@ -334,7 +394,7 @@ els.startBtn.addEventListener("click", async () => {
     };
 
     setStatus("loading AFS…");
-    await session.loadAFS(AFS_URL);
+    await session.loadAFS(afsUrl);
     var sourceDurationMs =
       session.afs?.parsed?.metadata?.source?.duration_ms ?? null;
 

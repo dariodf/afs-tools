@@ -65,11 +65,12 @@ async function check(file, importer) {
   }
 }
 
-// Walk from all three HTML entry points: the main demo (app.js)
-// and the two dedicated mic listen pages.
+// Walk from all four HTML entry points: the main demo, the two
+// dedicated mic listen pages, and the browser-side AFS generator.
 await check(path.join(ROOT, "app.js"), "(entry: index.html)");
 await check(path.join(ROOT, "src/listen.js"), "(entry: listen.html)");
 await check(path.join(ROOT, "src/listen-haptics.js"), "(entry: listen-haptics.html)");
+await check(path.join(ROOT, "src/generate.js"), "(entry: generate.html)");
 
 if (errors.length > 0) {
   console.error("Import resolution errors:");
