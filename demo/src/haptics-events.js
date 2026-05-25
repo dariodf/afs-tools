@@ -165,4 +165,14 @@ export class HapticsEventManager {
     this.lastPosition = null;
     this.lastWallTime = null;
   }
+
+  // Cancel pending schedules but preserve the fired set. Use when
+  // the source pauses: previously-armed setTimeouts run on wall
+  // clock and would fire against the frozen source if left alone.
+  // The fired set must be preserved so already-fired events don't
+  // re-fire when the source resumes.
+  cancelPending() {
+    for (const { handle } of this.pending.values()) this.cancel(handle);
+    this.pending.clear();
+  }
 }

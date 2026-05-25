@@ -875,6 +875,41 @@ test("HapticsEventManager: reset clears pending and fired state", () => {
   assertEqual(fired.length, 1);
 });
 
+test("HapticsEventManager: cancelPending cancels timers but preserves fired", () => {
+  // Pause semantics for the haptics demo: a pending setTimeout
+  // would otherwise fire against the frozen source. cancelPending
+  // wipes pending schedules without touching `fired`, so events
+  // already fired before the pause don't re-fire on resume and
+  // events not yet fired don't go off while paused.
+  const events = [
+    { time_ms: 500, type: "cannon" },  // future at step time
+    { time_ms: 2000, type: "cannon" }, // also future
+  ];
+  const { h, fired, sched } = makeHaptics(events);
+  h.step(0, 0);
+  assertEqual(sched.records.length, 2);
+  // Fire the first one; the second remains pending.
+  sched.fire(0);
+  assertEqual(fired.length, 1);
+  assertEqual(sched.records[1].cancelled, false);
+
+  // Pause: cancel the still-pending timer for event 1.
+  h.cancelPending();
+  assertEqual(sched.records[1].cancelled, true);
+  // Firing the now-cancelled timer does nothing.
+  sched.fire(1);
+  assertEqual(fired.length, 1, "cancelled timer must not fire");
+
+  // Resume: re-step from the same position. Event 0 stays fired
+  // (no double-fire), event 1 gets re-scheduled.
+  h.step(0, 0);
+  assertEqual(fired.length, 1, "already-fired event must not re-fire");
+  // sched.records grew by one (a fresh schedule for event 1).
+  assertEqual(sched.records.length, 3);
+  sched.fire(2);
+  assertEqual(fired.length, 2);
+});
+
 test("HapticsEventManager: doesn't re-schedule an event after it fires", () => {
   // Once a scheduled timeout fires, the event is marked as fired
   // and subsequent step() calls must not schedule it again — even

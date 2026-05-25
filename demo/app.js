@@ -472,26 +472,36 @@ async function startHapticsDemo() {
   const cannonVideo = document.getElementById("cannon-video");
   cannonVideo.src = "content/cannon-shot.mp4";
 
-  // When the audio reaches its natural end, reset the haptics
-  // manager's `fired` set + clear the cannon visual. Without this,
-  // pressing play again replays the audio but every event is
-  // already in `fired` and no cannons would fire.
+  // When the audio reaches its natural end, reset whichever
+  // scheduler is active so a second playthrough re-fires from
+  // scratch (without this the `fired` set would suppress every
+  // event), and clear the cannon visual.
   audioEl.addEventListener("ended", () => {
-    if (haptics) haptics.reset();
+    haptics?.reset();
+    precalcSched?.reset();
     cannonVideo.classList.remove("showing");
     cannonVideo.pause();
   });
   // Same on seek-to-start so the user can scrub back and re-trigger.
   audioEl.addEventListener("seeked", () => {
-    if (audioEl.currentTime < 0.5 && haptics) haptics.reset();
+    if (audioEl.currentTime < 0.5) {
+      haptics?.reset();
+      precalcSched?.reset();
+    }
   });
-  // If the user pauses mid-cannon, stop the cannon clip too. Otherwise
-  // the muzzle keeps animating after the music has frozen — visually
-  // inconsistent. (The "ended" handler above covers natural end-of-
-  // track; this one covers user pauses.)
+  // Pause handler. Two jobs:
+  //   1. Stop the cannon clip if one's mid-fire so the muzzle
+  //      doesn't keep animating against frozen music.
+  //   2. In Listen mode, cancel any pre-scheduled setTimeouts so
+  //      they don't fire cannons against the paused source. The
+  //      `fired` set is preserved — already-fired events shouldn't
+  //      re-fire on resume.
+  //   Pre-calc mode has no setTimeouts to cancel; pause is
+  //   automatic via the rAF loop's `audioEl.paused` check.
   audioEl.addEventListener("pause", () => {
     cannonVideo.pause();
     cannonVideo.classList.remove("showing");
+    haptics?.cancelPending();
   });
 
   const events = await fetch("content/overture-finale-cannons.json")
@@ -499,7 +509,14 @@ async function startHapticsDemo() {
     .then((d) => d.events || []);
 
   let activeMode = null;
+  // Listen mode uses HapticsEventManager (schedule-ahead via
+  // setTimeout, needed to compensate for matcher latency). Pre-calc
+  // mode uses a synchronous fire-on-pass scheduler driven directly
+  // from the rAF loop's read of audio.currentTime — same shape as
+  // the subtitle / karaoke demos, automatically pause-correct,
+  // unaffected by setTimeout precision. Only one is set at a time.
   let haptics = null;
+  let precalcSched = null;
 
   function setModeDetail(text) {
     document.getElementById("afs-mode-detail").textContent = text;
@@ -525,20 +542,34 @@ async function startHapticsDemo() {
       haptics.reset();
       haptics = null;
     }
+    precalcSched = null;
   }
 
-  // Pre-calc mode: cannons are scheduled from cannon-events JSON
-  // against the audio element's currentTime. No matcher, no AFS.
+  // Pre-calc mode: cannons fire synchronously inside the rAF loop
+  // when audio.currentTime crosses each event's time_ms. No
+  // setTimeout, no matcher, no AFS — same architecture as the
+  // subtitle / karaoke renderers (stateless reads of currentTime,
+  // pause is automatic, no scheduled work to cancel).
   async function startPrecalcMode() {
     setModeDetail("");
-    haptics = new HapticsEventManager(
-      events,
-      () => fireCannon(cannonVideo),
-      { predictionOffsetMs: 0 },
-    );
+    const fired = new Set();
+    precalcSched = {
+      step(positionMs) {
+        for (let i = 0; i < events.length; i++) {
+          if (fired.has(i)) continue;
+          if (events[i].time_ms <= positionMs) {
+            fired.add(i);
+            fireCannon(cannonVideo);
+          }
+        }
+      },
+      reset() {
+        fired.clear();
+      },
+    };
     startRafLoop(() => {
       if (!audioEl.paused && audioEl.currentTime > 0) {
-        haptics.step(audioEl.currentTime * 1000, performance.now());
+        precalcSched.step(audioEl.currentTime * 1000);
       }
     });
     setStatus("ready · press play", "");
