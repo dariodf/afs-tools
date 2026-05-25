@@ -201,7 +201,7 @@ async function startSessionFor(session, mediaElementOrNull) {
 }
 
 // -----------------------------------------------------------------------
-// Subtitles demo: original + edited video side-by-side, shared SRT
+// Subtitles demo: original + edited video stacked, shared SRT
 // -----------------------------------------------------------------------
 
 async function startDesyncVideoDemo() {
@@ -251,7 +251,7 @@ async function startDesyncVideoDemo() {
       </div>
     </div>
     <div class="demo-explanation">
-      The right-hand video has three short scenes removed in the
+      The edited video below has three short scenes removed in the
       first 20 s. Both share the same correctly-timed SRT (timed for
       the original). Without AFS the edited video's subtitles fall
       progressively behind at each cut. With AFS, fingerprinting
