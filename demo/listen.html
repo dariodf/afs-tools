@@ -33,15 +33,15 @@
           <a href="generate.html">generate.html</a>?
           Pick it here along with your subtitle file to listen.
         </p>
-        <label class="listen-pick-field">
+        <label class="listen-pick-field" id="listen-pick-afs-row">
           <span>AFS file</span>
           <input type="file" id="listen-pick-afs" accept=".afs,text/plain" />
         </label>
-        <label class="listen-pick-field">
+        <label class="listen-pick-field" id="listen-pick-srt-row">
           <span>Subtitle file</span>
           <input type="file" id="listen-pick-srt" accept=".srt,.vtt,text/plain" />
         </label>
-        <label class="listen-pick-field">
+        <label class="listen-pick-field" id="listen-pick-title-row">
           <span>Title (optional)</span>
           <input
             type="text"
@@ -71,6 +71,7 @@
           height="80"
           aria-hidden="true"
         ></canvas>
+        <a class="listen-foot-link" href="index.html">AFS project</a>
       </footer>
     </main>
 

@@ -91,6 +91,28 @@
         <p id="generate-error-text">Something went wrong.</p>
       </section>
 
+      <section class="generate-qr" aria-labelledby="generate-qr-heading">
+        <div class="generate-qr-text">
+          <h2 class="generate-qr-heading" id="generate-qr-heading">
+            On your phone
+          </h2>
+          <p>
+            Scan this to open the listen page on your phone. Once it's
+            open, transfer the <code>.afs</code> and your subtitle file
+            (AirDrop, Drive, email — anything) and pick them from the
+            file pickers.
+          </p>
+          <p class="generate-qr-fallback">
+            Or visit
+            <a id="generate-qr-link" href="listen.html"
+              >this page</a
+            >
+            on your phone manually.
+          </p>
+        </div>
+        <div class="generate-qr-code" id="generate-qr-code"></div>
+      </section>
+
       <footer class="generate-foot">
         <p>
           Runs locally with the same chromaprint WebAssembly the demo uses.
@@ -105,6 +127,7 @@
       {
         "imports": {
           "smol-toml": "./vendor/smol-toml/index.js",
+          "qrcode-generator": "./vendor/qrcode-generator/index.mjs",
           "@unimusic/chromaprint/dist/chromaprint.js": "./vendor/@unimusic/chromaprint/chromaprint.js"
         }
       }

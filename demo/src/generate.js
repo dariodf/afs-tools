@@ -23,6 +23,7 @@ import {
   loadChromaprint,
 } from "./chromaprint.js";
 import { downmixToMono } from "./audio-utils.js";
+import { qrCode } from "./vendor/qr-code.js";
 
 const els = {
   drop: document.getElementById("generate-drop"),
@@ -38,7 +39,19 @@ const els = {
   download: document.getElementById("generate-download"),
   error: document.getElementById("generate-error"),
   errorText: document.getElementById("generate-error-text"),
+  qrCode: document.getElementById("generate-qr-code"),
+  qrLink: document.getElementById("generate-qr-link"),
 };
+
+// Wire the QR + fallback link to the listen page on the same origin.
+// listen.html with no params shows the file-picker, which is what we
+// want the phone-side flow to land on.
+(function renderListenQr() {
+  if (!els.qrCode) return;
+  const listenUrl = new URL("listen.html", window.location.href).toString();
+  els.qrCode.innerHTML = qrCode(listenUrl, { size: 180 });
+  if (els.qrLink) els.qrLink.href = listenUrl;
+})();
 
 let lastObjectUrl = null;
 
@@ -74,13 +87,21 @@ function stripExtension(name) {
   return name.replace(/\.[^.]+$/, "");
 }
 
+// crypto.subtle requires a secure context (HTTPS or localhost).
+// On a LAN IP over plain HTTP it's undefined; we treat SHA-256 as
+// best-effort and return null in that case so generation still
+// produces a valid AFS (the sha256 metadata field is optional).
 async function sha256Hex(arrayBuffer) {
-  // crypto.subtle is available everywhere we care about.
-  const digest = await crypto.subtle.digest("SHA-256", arrayBuffer);
-  const bytes = new Uint8Array(digest);
-  let hex = "";
-  for (const b of bytes) hex += b.toString(16).padStart(2, "0");
-  return hex;
+  if (!globalThis.crypto?.subtle?.digest) return null;
+  try {
+    const digest = await crypto.subtle.digest("SHA-256", arrayBuffer);
+    const bytes = new Uint8Array(digest);
+    let hex = "";
+    for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+    return hex;
+  } catch {
+    return null;
+  }
 }
 
 async function processFile(file) {
@@ -100,30 +121,37 @@ async function processFile(file) {
     return;
   }
 
-  // Run sha256 + audio decode in parallel — they're independent and
-  // both touch the same buffer.
-  let audioBuffer, sha256;
+  // Hash and decode are independent. Run them in parallel but keep
+  // their error reporting separate so we don't blame audio decode
+  // for a crypto.subtle issue, or vice-versa.
   const audioContext = new (window.AudioContext ||
     window.webkitAudioContext)();
-  try {
-    showProgress("Decoding audio…", 0.2);
-    // decodeAudioData consumes its ArrayBuffer in some browsers, so
-    // we slice() a copy for the hash. arrayBuffer.slice(0) is fast.
-    const hashBuf = arrayBuffer.slice(0);
-    const [decoded, hex] = await Promise.all([
-      audioContext.decodeAudioData(arrayBuffer),
-      sha256Hex(hashBuf),
-    ]);
-    audioBuffer = decoded;
-    sha256 = hex;
-  } catch (e) {
+
+  showProgress("Decoding audio…", 0.2);
+
+  // decodeAudioData consumes its ArrayBuffer in some browsers, so
+  // we slice() a copy for the hash. arrayBuffer.slice(0) is fast.
+  const hashBuf = arrayBuffer.slice(0);
+
+  const [decodeResult, hashResult] = await Promise.allSettled([
+    audioContext.decodeAudioData(arrayBuffer),
+    sha256Hex(hashBuf),
+  ]);
+
+  if (decodeResult.status === "rejected") {
     audioContext.close().catch(() => {});
+    const msg = decodeResult.reason?.message || String(decodeResult.reason);
     showError(
-      `Couldn't decode audio: ${e.message}. Make sure the file format is supported by your browser.`,
+      `Couldn't decode audio: ${msg}. Make sure the file format is supported by your browser.`,
     );
     els.drop.classList.remove("busy");
     return;
   }
+  const audioBuffer = decodeResult.value;
+  // sha256 is best-effort; missing is fine (it's optional in AFS).
+  // crypto.subtle is undefined on non-secure contexts (LAN IP over
+  // plain HTTP, for example) — we just omit the field there.
+  const sha256 = hashResult.status === "fulfilled" ? hashResult.value : null;
 
   let hashes;
   try {
@@ -172,7 +200,8 @@ async function processFile(file) {
   els.metaName.textContent = file.name;
   els.metaDuration.textContent = fmtDuration(durationMs / 1000);
   els.metaHashes.textContent = hashes.length.toLocaleString();
-  els.metaSha256.textContent = sha256;
+  els.metaSha256.textContent =
+    sha256 ?? "(omitted — crypto.subtle unavailable in this context)";
 
   showResult();
   els.drop.classList.remove("busy");

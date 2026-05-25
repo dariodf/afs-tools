@@ -51,8 +51,11 @@ const els = {
   startBtn: document.getElementById("listen-start"),
   waveform: document.getElementById("listen-waveform"),
   pick: document.getElementById("listen-pick"),
+  pickAfsRow: document.getElementById("listen-pick-afs-row"),
   pickAfs: document.getElementById("listen-pick-afs"),
+  pickSrtRow: document.getElementById("listen-pick-srt-row"),
   pickSrt: document.getElementById("listen-pick-srt"),
+  pickTitleRow: document.getElementById("listen-pick-title-row"),
   pickTitle: document.getElementById("listen-pick-title"),
   pickStatus: document.getElementById("listen-pick-status"),
 };
@@ -76,86 +79,126 @@ function setStatus(text) {
   els.status.textContent = text;
 }
 
-// Mode dispatch. URL-param mode (?afs=… &srt=…) is the canonical
-// path for QR-launched companion sessions. File-picker mode is the
-// fallback for users who generated an AFS on generate.html and
-// transferred the file pair to their phone — open listen.html with
-// no params, pick the local files.
-async function preloadFromUrl(afsUrlStr, srtUrlStr) {
-  setStatus("loading…");
+// Mode dispatch. Each of three inputs (AFS, SRT, title) can come
+// from a URL query parameter or from the in-page picker; the modes
+// mix freely. Layout follows: pre-resolve whatever was provided in
+// the URL, hide those rows of the picker, leave the rest visible.
+// If everything's provided, the picker is hidden entirely.
+//
+// Per-slot state. needsX = true means "the picker row is visible
+// and the user must still supply this". The Start button stays
+// hidden while any slot still needs supplying.
+let needsAfs = !AFS_URL_PARAM;
+let needsSrt = !SRT_URL_PARAM;
+
+function maybeHidePicker() {
+  if (!needsAfs && !needsSrt) {
+    els.pick.hidden = true;
+    els.startBtn.hidden = false;
+    els.pickStatus.textContent = "";
+    setStatus("tap to listen");
+  } else {
+    els.pick.hidden = false;
+    els.startBtn.hidden = true;
+    updatePickerStatus();
+  }
+}
+
+function updatePickerStatus() {
+  if (needsAfs && needsSrt) {
+    els.pickStatus.textContent = "Add an AFS file and a subtitle file.";
+  } else if (needsAfs) {
+    els.pickStatus.textContent = "Add an AFS file to continue.";
+  } else if (needsSrt) {
+    els.pickStatus.textContent = "Add a subtitle file to continue.";
+  } else {
+    els.pickStatus.textContent = "";
+  }
+  setStatus(els.pick.hidden ? "tap to listen" : "pick your files");
+}
+
+// AFS slot — URL value just gets stored; we don't fetch until Start
+// (session.loadAFS does the fetch). Filling slot from a picker file
+// means making a blob URL.
+async function resolveAfsFromPicker(file) {
+  afsUrl = URL.createObjectURL(file);
+  needsAfs = false;
+  els.pickAfsRow.hidden = true;
+  // Default the displayed title to the picked AFS file's stem if
+  // ?title= wasn't supplied and the user didn't type one.
+  if (!TITLE_PARAM && !els.pickTitle.value.trim()) {
+    els.sourceTitle.textContent = file.name.replace(/\.[^.]+$/, "");
+  }
+  maybeHidePicker();
+}
+
+// SRT slot — local file is read straight to text. URL value is
+// fetched here so a missing/wrong URL surfaces an error at boot
+// rather than after the user taps Start.
+async function resolveSrtFromUrl(srtUrlStr) {
   const srtText = await fetch(srtUrlStr).then((r) => {
     if (!r.ok) throw new Error(`SRT ${r.status} (${srtUrlStr})`);
     return r.text();
   });
   cues = parseSRT(srtText);
-  afsUrl = afsUrlStr;
-  setStatus("tap to listen");
 }
 
-function showPicker() {
-  els.pick.hidden = false;
-  // Start button is hidden until both files are picked. Avoids the
-  // dead-click problem if the user taps it before selecting.
-  els.startBtn.hidden = true;
-  setStatus("pick your AFS + subtitle files");
+async function resolveSrtFromPicker(file) {
+  const srtText = await file.text();
+  cues = parseSRT(srtText);
+  needsSrt = false;
+  els.pickSrtRow.hidden = true;
+  maybeHidePicker();
 }
 
-function hidePicker() {
-  els.pick.hidden = true;
-  els.startBtn.hidden = false;
-}
-
-function updatePickerStatus() {
-  const hasAfs = !!els.pickAfs.files?.[0];
-  const hasSrt = !!els.pickSrt.files?.[0];
-  if (!hasAfs && !hasSrt) {
-    els.pickStatus.textContent = "";
-  } else if (!hasAfs) {
-    els.pickStatus.textContent = "Add an AFS file to continue.";
-  } else if (!hasSrt) {
-    els.pickStatus.textContent = "Add a subtitle file to continue.";
-  } else {
-    els.pickStatus.textContent = "Loading…";
+// Pre-resolve URL-provided slots; show / hide picker rows
+// accordingly. Title slot is purely cosmetic (display title);
+// preserve any existing input the user typed when re-evaluating.
+async function init() {
+  // AFS slot.
+  if (AFS_URL_PARAM) {
+    afsUrl = AFS_URL_PARAM;
+    els.pickAfsRow.hidden = true;
   }
+  // Title slot — if URL supplied a title, drop the input row.
+  if (TITLE_PARAM) {
+    els.pickTitleRow.hidden = true;
+  }
+  // SRT slot. Done last because it's async (fetch + parse).
+  if (SRT_URL_PARAM) {
+    els.pickSrtRow.hidden = true;
+    try {
+      setStatus("loading subtitles…");
+      await resolveSrtFromUrl(SRT_URL_PARAM);
+    } catch (e) {
+      setState("error");
+      setStatus(`SRT load failed: ${e.message}`);
+      els.startBtn.hidden = true;
+      return;
+    }
+  }
+  maybeHidePicker();
 }
 
-async function tryLoadFromPicker() {
-  const afsFile = els.pickAfs.files?.[0];
-  const srtFile = els.pickSrt.files?.[0];
-  if (!afsFile || !srtFile) {
-    updatePickerStatus();
-    return;
-  }
-  updatePickerStatus();
+els.pickAfs.addEventListener("change", async (e) => {
+  const f = e.target.files?.[0];
+  if (f) await resolveAfsFromPicker(f);
+});
+els.pickSrt.addEventListener("change", async (e) => {
+  const f = e.target.files?.[0];
+  if (!f) return;
   try {
-    const srtText = await srtFile.text();
-    cues = parseSRT(srtText);
-    afsUrl = URL.createObjectURL(afsFile);
-    const title = els.pickTitle.value.trim() || afsFile.name.replace(/\.[^.]+$/, "");
-    els.sourceTitle.textContent = title;
-    els.pickStatus.textContent = "";
-    hidePicker();
-    setStatus("tap to listen");
-  } catch (e) {
-    els.pickStatus.textContent = `Couldn't read files: ${e.message}`;
+    await resolveSrtFromPicker(f);
+  } catch (err) {
+    els.pickStatus.textContent = `Couldn't read subtitle file: ${err.message}`;
   }
-}
+});
+els.pickTitle.addEventListener("input", () => {
+  const v = els.pickTitle.value.trim();
+  if (v) els.sourceTitle.textContent = v;
+});
 
-els.pickAfs.addEventListener("change", tryLoadFromPicker);
-els.pickSrt.addEventListener("change", tryLoadFromPicker);
-
-if (AFS_URL_PARAM && SRT_URL_PARAM) {
-  // Canonical QR / link-launched flow.
-  preloadFromUrl(AFS_URL_PARAM, SRT_URL_PARAM).catch((e) => {
-    setState("error");
-    setStatus(`load error: ${e.message}`);
-    els.startBtn.hidden = true;
-  });
-} else {
-  // No URL params — show the file picker. No "error" state; this is
-  // the standalone-listener flow now.
-  showPicker();
-}
+init();
 
 // Wall-clock-projected subtitle update. Between matcher ticks we
 // extrapolate the source position forward at 1.0 × wall time —
@@ -167,14 +210,23 @@ let lastMatchSourceMs = null;
 let lastMatchWall = null;
 let confirmedMatches = 0; // consecutive non-tentative matches; gate for "in sync"
 
-// Cap the forward projection at one tick's worth of "between-
-// matcher-ticks smoothing" — beyond that, we assume the source
-// has paused or gone silent and freeze the displayed position.
-// Without this, lastMatchWall stays pinned to the moment of the
-// last accepted match while `now` keeps advancing, so the
-// subtitle scrolls forward through cues that never actually
-// played.
-const PROJECT_MAX_MS = 250;
+// Forward-projection cap. Between confident matcher reports we
+// extrapolate the source position at 1× wall-clock. The cap exists
+// to stop projecting "into the future" if the matcher's gone silent
+// for a long time — but pause-detection is now handled by the
+// silence-ticks gate below (lastPeak < SILENCE_PEAK_THRESHOLD →
+// goLost() after SILENCE_TICKS_BEFORE_LOST ticks ≈ 2 s).
+//
+// With a separate pause detector, the cap's only job is bounding
+// how long we keep showing cues if the source is still playing but
+// chromaprint can't lock on for stretches (noisy mic capture, soft
+// dialogue, music underlay). 1000 ms is half the silence-gate
+// threshold — projection freezes well before the page actually
+// drops to LOST, so paused content stops scrolling subtitles
+// quickly. Trade-off: shorter caps make missed cues more common in
+// real-room mic capture, but the responsiveness gain on pause is
+// the priority here.
+const PROJECT_MAX_MS = 1000;
 function currentProjectedSourceMs() {
   if (lastMatchSourceMs == null) return null;
   const elapsed = Math.min(

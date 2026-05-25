@@ -82,6 +82,41 @@ The test suite covers the AFS parser, matcher (offset-locked
 rendering, cut consistency, mic/direct capture, drift over long
 sources), SRT parser, writer, and the haptics event scheduler.
 
+### Use the listen page with your own files
+
+`demo/listen.html` is a self-contained AFS player: open it in a
+browser, point it at an AFS + SRT pair, and a second device's
+microphone follows along with whatever audio it hears. The page is
+usable without any of the bundled demos, so you can host your own
+AFS file somewhere and share a one-link experience.
+
+Two ways to point it at files:
+
+**1. URL parameters** (best for shareable links):
+
+```
+https://<your-deploy>/listen.html
+  ?afs=https://example.com/my-movie.afs
+  &srt=https://example.com/my-movie.en.srt
+  &title=My%20Movie
+```
+
+All three params (`afs`, `srt`, `title`) are independent — supply
+any subset; the page will show file pickers for the missing ones.
+
+**2. Local files** (best for "I generated an AFS, transferred it
+to my phone"): open `listen.html` with no parameters and use the
+file pickers to load `.afs` and `.srt` from local storage. Nothing
+uploads.
+
+**CORS caveat.** When using URL parameters that point to a
+different origin than the page is hosted on, your file server must
+return `Access-Control-Allow-Origin` headers permitting the page's
+origin. GitHub Pages, Netlify, Vercel, and most public S3 buckets
+do this by default. Private servers or strict CDN setups may
+block the fetch with a CORS error — that's on the file host to
+configure, not on the player.
+
 ## Status
 
 v0.1 release candidate. The AFS parser, matcher, SRT parser, writer,

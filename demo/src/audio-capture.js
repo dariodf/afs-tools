@@ -54,6 +54,20 @@ export class AudioCapture {
 
   async startFromMicrophone() {
     this._ensureContext();
+    // navigator.mediaDevices is gated by secure context (HTTPS,
+    // localhost, file://). On a plain-HTTP LAN IP it's undefined,
+    // which would crash with a confusing "Cannot read properties of
+    // undefined" error. Catch that here and produce a message that
+    // tells the user what's wrong and how to fix it.
+    if (!navigator.mediaDevices?.getUserMedia) {
+      const origin = window.location.origin;
+      throw new Error(
+        `microphone unavailable: this page must be served over HTTPS or ` +
+          `from localhost. Current origin: ${origin}. ` +
+          `If you opened a LAN IP, switch to http://localhost:<port> ` +
+          `or use an HTTPS tunnel.`,
+      );
+    }
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: false,

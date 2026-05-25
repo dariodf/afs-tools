@@ -501,7 +501,13 @@ header {
   color: var(--subtitle-fg);
   padding: var(--s-3) var(--s-4);
   border-radius: 4px;
-  min-height: 2.75rem;
+  /* A nudge above the natural line-height — the body font's
+     ascenders/descenders sit slightly outside the line-box, so a
+     tight min-height would visibly expand when text appears. */
+  min-height: 3.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   font-size: 1.0625rem;
   line-height: 1.4;
@@ -981,15 +987,12 @@ header {
    ----------------------------------------------------------------------- */
 
 .video-pair {
+  /* Stack vertically at every viewport size — the side-by-side
+     desktop layout was harder to follow than the original-then-edited
+     reading order this gives us. */
   display: grid;
   grid-template-columns: 1fr;
   gap: var(--s-4);
-}
-
-@media (min-width: 800px) {
-  .video-pair {
-    grid-template-columns: 1fr 1fr;
-  }
 }
 
 .video-column {
@@ -1159,7 +1162,10 @@ footer > p:first-child {
   justify-content: center;
   text-align: center;
   padding: 1rem;
-  min-height: 4em;
+  /* Small bump over the natural line-height to absorb font ascender/
+     descender overshoot — the original 4em was just barely too tight
+     and the box visibly grew when the first cue appeared. */
+  min-height: 4.75em;
 }
 
 .listen-subtitle-text {
@@ -1249,7 +1255,22 @@ footer > p:first-child {
 
 .listen-foot {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-3);
+}
+
+.listen-foot-link {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(235, 229, 211, 0.55);
+  text-decoration: none;
+  padding: var(--s-1) var(--s-2);
+}
+.listen-foot-link:hover {
+  color: rgba(235, 229, 211, 0.9);
 }
 
 .listen-waveform {
@@ -1495,8 +1516,18 @@ footer > p:first-child {
 
 /* -----------------------------------------------------------------------
    listen.html: file-picker fallback
-   Shown when listen.html is opened with no afs= / srt= URL params.
+   Shown when listen.html is opened with no afs= / srt= URL params,
+   or with only one of them (the missing file's row is shown so the
+   user can supply it locally).
    ----------------------------------------------------------------------- */
+
+/* HTML's `hidden` attribute defaults to `display: none`, but rules
+   like `.listen-pick { display: flex }` below would otherwise win
+   on specificity and keep the picker visible even when we ask for
+   it to be hidden. Make `hidden` decisive on this page. */
+.listen-stage [hidden] {
+  display: none !important;
+}
 
 .listen-pick {
   background: rgba(245, 245, 247, 0.06);
@@ -1578,9 +1609,16 @@ footer > p:first-child {
 
 /* -----------------------------------------------------------------------
    Generate page (demo/generate.html)
-   Drag-drop a media file, get an AFS to download. Standalone page, no
-   QR area, no playback. Shares the project's type system + colors.
+   Drag-drop a media file, get an AFS to download. Standalone page;
+   shares the project's type system + colors.
    ----------------------------------------------------------------------- */
+
+/* HTML's `hidden` attribute defaults to `display: none`, but a rule
+   with an explicit display value (display: flex, etc.) below would
+   otherwise win on specificity. Make `hidden` decisive. */
+.generate-stage [hidden] {
+  display: none !important;
+}
 
 .generate-body {
   background: var(--bg);
@@ -1815,6 +1853,79 @@ footer > p:first-child {
   border-radius: 0 4px 4px 0;
   color: var(--status-error);
   font-size: 0.9375rem;
+}
+
+/* "On your phone" QR card. Two-column on wider screens (text + QR
+   side by side), stacks on narrow. The QR itself is rendered as
+   SVG by demo/src/vendor/qr-code.js. */
+.generate-qr {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--s-5);
+  align-items: center;
+  padding: var(--s-5);
+  background: var(--bg-elevated);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+}
+@media (max-width: 36rem) {
+  .generate-qr {
+    grid-template-columns: 1fr;
+    text-align: center;
+    justify-items: center;
+  }
+}
+
+.generate-qr-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.generate-qr-heading {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.25rem;
+  margin: 0;
+  font-variation-settings: "opsz" 30, "SOFT" 40;
+}
+
+.generate-qr-text p {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: var(--fg-dim);
+}
+
+.generate-qr-text code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  padding: 0.05em 0.3em;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 3px;
+}
+
+.generate-qr-fallback {
+  font-size: 0.8125rem !important;
+  color: var(--fg-muted) !important;
+}
+.generate-qr-fallback a {
+  color: var(--accent);
+}
+
+.generate-qr-code {
+  width: 180px;
+  height: 180px;
+  background: #fff;
+  padding: var(--s-3);
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.generate-qr-code svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .generate-foot {
