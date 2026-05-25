@@ -27,6 +27,10 @@ from media you have locally, a standalone **listen.html** page any
 device can use as a microphone-driven sync player, and a small Bash
 CLI in `tools/`.
 
+![Cross-device sync: laptop plays a dialogue clip, a companion listen.html window shows the same subtitle line — confidence 74 %.](./screenshots/cross-device.webp)
+
+![Subtitles demo, edited cut with three short scene-removals in the first 20 s. "Fix the drift with AFS" is on; the subtitle below the cut video reads the correct line for the dialogue being spoken.](./screenshots/drift-fix.webp)
+
 ## Quick start
 
 ### Generate an AFS file
