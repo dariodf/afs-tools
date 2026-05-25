@@ -38,6 +38,49 @@ The biggest derisking step is to try the vendored TS implementation
 on `overture-finale.mp3` first. If the landmarks look sensible
 after an afternoon of glue code, the rest is straightforward.
 
+### What the afternoon-of-glue-code experiment showed
+
+Code lives at [`experiments/landmark/`](./experiments/landmark/)
+on this branch. Run it via `node match-test.mjs`. Findings on the
+demo's actual three content pieces:
+
+| Content | Min capture for reliable lock | Notes |
+|---|---|---|
+| Dialogue (Tears of Steel) | **~3 s, infinity-margin lock** | Speech transients + formants are uniquely distinctive; no competing offsets |
+| Vocal music (Silent Night) | ~10 s, 5-7× margin | Sustained tones give weaker landmarks |
+| Orchestral (1812 finale) | ~10 s, 1.6-13× margin | Repeating motifs create collateral matches at short captures (off by 30 s in one 5-s test) |
+
+Noise robustness at -24 dB (typical room ambient): holds. At -12 dB
+overlay noise: collapses — the lib produced 374-432 spurious
+landmarks from a 5-second window (should be ~25 real), drowning
+the signal entirely.
+
+The "Shazam is universally magic" picture overstates it. The
+algorithm is **content-dependent**:
+
+- **Movies / dialogue**: landmark beats chromaprint on every axis
+  (3 s lock vs 3.5 s, no false positives, larger but gzippable
+  stream).
+- **Karaoke / vocal music**: landmark needs longer captures
+  (10 s) but is robust once locked.
+- **Orchestral / instrumental**: weakest case for landmark —
+  repeating themes confuse the matcher with short captures.
+
+The v0.2 case for landmark is real but should be sold as
+"better-for-dialogue, neutral-for-music," not "universal upgrade."
+A real migration would:
+
+1. Tune the lib's peak-detection threshold (cuts noise landmarks)
+2. Adapt the listen-page state machine to handle different
+   lock-on latencies per content type (~3 s for movies, ~10 s
+   for music)
+3. A/B both algorithms on the actual demos with real phone-mic
+   capture, not synthetic noise
+
+For v0.1 release, chromaprint remains the right pick — its
+weaknesses are visible but bounded, and landmark's wins are
+content-conditional in a way that complicates the spec story.
+
 ## Animated-QR file transfer between generate.html and listen.html
 
 v0.1 ships the generate / listen handoff via local file transfer
