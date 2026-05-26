@@ -1535,7 +1535,6 @@ footer > p:first-child {
    uses the same scale as the demos. */
 .generate-intro {
   color: var(--fg-dim);
-  max-width: 56ch;
   line-height: 1.55;
   margin: 0;
 }
@@ -1553,7 +1552,6 @@ footer > p:first-child {
 }
 .generate-intro-note {
   margin: 0;
-  max-width: 56ch;
   font-size: 0.85rem;
   color: var(--fg-muted);
   line-height: 1.5;
