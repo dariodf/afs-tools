@@ -10,6 +10,23 @@ fingerprints to its current position and stays in sync with the
 source in real time. No network connection between the devices, no
 clock sync, no companion app: just audio.
 
+**What you can use it for.** All variations of the same primitive
+("tell me where in the source I am right now"):
+
+- **Subtitles that don't drift** — ship an AFS made from the
+  original source alongside your existing SRT. Any player with
+  both files renders the correct subtitle for the moment the
+  audio is at, regardless of cuts, ad breaks, or re-encodes
+  applied downstream.
+- **Cross-device subtitles** — smart glasses or a phone listen to a
+  TV or laptop via microphone and show the subtitles themselves. No
+  companion app, no network between devices.
+- **Karaoke lyrics on a second screen** — same flow as subtitles,
+  but with song lyrics; works for any device playing the song.
+- **Haptics, lights, any synced-to-audio reaction** — a device
+  with the AFS for a track can fire events at exact audio moments
+  by listening to whatever's playing.
+
 **Try it live: <https://dariodf.github.io/afs-tools/>**
 
 **What's in this repo.** Three demos that show what that enables:
@@ -60,6 +77,84 @@ cd demo && python3 -m http.server 8000
 Then open <http://localhost:8000> in a browser. For microphone access
 on most browsers, `localhost` is treated as a secure context; deployed
 versions require HTTPS.
+
+## How to use it for subtitle sync
+
+To ship subtitles that don't go out of sync you produce a paired
+set of two files and distribute them together:
+
+1. **An AFS file**, generated from the *original source* media —
+   the master cut; the same version your subtitles are timed
+   against. The AFS captures what the source sounds like at every
+   moment.
+2. **An SRT (or VTT) file** whose timings line up with that same
+   source. AFS doesn't rewrite subtitle timings; it makes sure the
+   player knows where it is in the source. The SRT still has to be
+   correct against that source.
+
+**Neither file does the job alone.** AFS without an SRT has nothing
+to display. An SRT without an AFS drifts exactly the way it has
+always drifted.
+
+**You only need to be correct once.** Get the SRT synced against the
+source one time. From then on, ship the SRT alongside the AFS and
+the pair works every single time — broadcast cuts with ad breaks
+inserted, third-party rips, copies trimmed by 30 s, transcodes
+with different framing. The AFS lets the player find its true
+source position from the audio, so no downstream cut or re-encode
+can break the binding.
+
+### Producing the pair
+
+If you already have a synced SRT for your source, generate the AFS
+from the same source media:
+
+```bash
+./tools/afs-generate/afs-generate movie.mp4   # → movie.afs
+# Pair this movie.afs with your existing movie.srt.
+```
+
+In a browser, [generate.html](https://dariodf.github.io/afs-tools/generate.html)
+does the same thing — drop the source media, download the AFS,
+bring your own SRT.
+
+If you have only the source media and no subtitle file, this tool
+produces both in one step (via WhisperX transcription):
+
+```bash
+./tools/transcribe-generate/transcribe-generate movie.mp4
+# → movie.afs + movie.en.srt, both timed to the same source.
+```
+
+If you have the *text* but no timings (an official screenplay, the
+canonical lyrics for a song, a subtitle file that's drifted), align
+the transcript instead of transcribing — skips Whisper's ASR stage
+so the model never guesses words, just finds when each known word
+occurs:
+
+```bash
+./tools/transcribe-generate/transcribe-generate --transcript script.txt movie.mp4
+# → movie.afs + movie.srt, with your text and aligned timings.
+```
+
+### Playing back the pair
+
+The device that displays the subtitle needs **both** files. Two flows:
+
+- **Same-device** — a video player loads the AFS and the SRT,
+  fingerprints its own audio output, and renders the subtitle at
+  the matched source position. The reference subtitle demo shows
+  this end-to-end.
+- **Cross-device** — open `listen.html` on the device that should
+  show subtitles (typically a phone), point it at the AFS + SRT
+  (via URL parameters or local-file pickers), and let it listen via
+  microphone. The audio source can be a separate laptop, a TV, or
+  any device playing the original source — including any re-cut,
+  ad-broken, or re-encoded version of it.
+
+The subtitle-displaying device doesn't need a copy of the source
+media itself — only the AFS + SRT pair. The source plays from
+wherever it normally plays.
 
 ## Use the listen page with your own files
 
@@ -303,6 +398,10 @@ folder with focused docs:
   handy on its own when you already have an fpcalc stream.
 - [`tools/transcribe-generate/`](./tools/transcribe-generate/) —
   media → time-aligned SRT (via WhisperX) **and** AFS, in one step.
+  Pass `--transcript path.txt` to skip Whisper ASR and align an
+  authoritative transcript you already have (screenplay, official
+  lyrics, drifted SRT) — produces a correctly-timed SRT without
+  guessing words.
 - [`tools/afs-minimize/`](./tools/afs-minimize/) — drop AFS hashes
   outside subtitle coverage windows. Useful for sparse-cue content
   and for distributing AFS files outside HTTP.

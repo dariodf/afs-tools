@@ -1535,9 +1535,13 @@ footer > p:first-child {
    uses the same scale as the demos. */
 .generate-intro {
   color: var(--fg-dim);
-  max-width: 50ch;
+  max-width: 56ch;
   line-height: 1.55;
   margin: 0;
+}
+.generate-intro strong {
+  color: var(--fg);
+  font-weight: 600;
 }
 .generate-intro code {
   font-family: var(--font-mono);
@@ -1546,6 +1550,20 @@ footer > p:first-child {
   background: var(--accent-soft);
   color: var(--accent);
   border-radius: 3px;
+}
+.generate-intro-note {
+  margin: 0;
+  max-width: 56ch;
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  line-height: 1.5;
+}
+.generate-intro-note a {
+  color: var(--accent);
+}
+.generate-intro-note code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
 }
 
 /* Drop zone — dashed border, the project's sigil character at the

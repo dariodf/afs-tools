@@ -60,10 +60,22 @@
     <div class="stage">
       <section class="player-area">
         <p class="generate-intro">
-          Drop an audio or video file. Your browser fingerprints it
-          locally — nothing uploads. You get a small
-          <code>.afs</code> file to pair with your subtitles, so
-          any second device can follow along by listening.
+          Drop the <strong>original source</strong> media — the
+          same version your subtitle file is timed against. Your
+          browser fingerprints it locally (nothing uploads) and
+          gives back a small <code>.afs</code>.
+          <strong>You only need to be correct once:</strong> get
+          the SRT synced against the source one time, then ship
+          the <code>.srt</code> alongside the <code>.afs</code>
+          and the pair works every single time — re-cuts,
+          broadcast versions with ad breaks, third-party rips,
+          transcodes — without ever re-syncing the subtitles.
+        </p>
+        <p class="generate-intro-note">
+          Don't have an SRT yet? The
+          <a href="https://github.com/dariodf/afs-tools/tree/main/tools/transcribe-generate"><code>transcribe-generate</code></a>
+          CLI produces a matched <code>.afs</code> +
+          <code>.srt</code> in one step from any audio or video.
         </p>
 
         <section
@@ -116,9 +128,13 @@
             href="#"
           >Download .afs</a>
           <p class="generate-next">
-            Send the <code>.afs</code> to your phone alongside your
-            subtitle file (any transfer works — AirDrop, Drive,
-            email). Then on the phone open
+            The <code>.afs</code> only does its job paired with a
+            subtitle file timed to the <strong>same source</strong>
+            you just fingerprinted. Send <strong>both</strong>
+            files (<code>.afs</code> + <code>.srt</code>) to
+            whichever device should show subtitles — AirDrop,
+            Drive, email, any transfer works. Then on that device
+            open
             <a
               href="listen.html"
               class="generate-listen-link"
