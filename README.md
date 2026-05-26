@@ -96,6 +96,159 @@ do this by default. Private servers or strict CDN setups may block
 the fetch with a CORS error — that's on the file host to configure,
 not on the player.
 
+## How AFS works
+
+A reader who wants to re-implement an AFS listener in any
+environment — another language, another runtime, embedded in a
+larger system — needs to understand the algorithm. The normative
+format lives in the [spec](https://github.com/dariodf/afs); this
+section is the 30-second-read summary.
+
+**The file.** An AFS file is a TOML header naming the
+fingerprinting algorithm, then a body where each line is a time
+cue (in milliseconds) and a fingerprint payload separated by
+whitespace:
+
+```
+[afs]
+version = "0.1"
+
+[fingerprint]
+algorithm = "chromaprint"
+
+[metadata.source]
+title = "My Movie"
+duration_ms = 5396604
+
+---
+0 568779850
+124 1642427401
+248 1634032664
+...
+```
+
+For `algorithm = "chromaprint"`, each payload is a single 32-bit
+integer hash. Hashes appear every ~124 ms (chromaprint's hop at
+its canonical 11025 Hz / 4096-sample window / 2/3 overlap).
+
+**The match.** A listener's job is to determine where the listener
+is right now in the source audio that the AFS file describes. The
+flow:
+
+1. **Capture audio** from a microphone or the player's audio
+   output. Downmix to mono.
+2. **Fingerprint** the captured audio with the same algorithm
+   declared in the AFS header (chromaprint in v0.1), feeding it
+   at its native sample rate so the algorithm resamples
+   internally with its own resampler. You get a stream of 32-bit
+   hashes, same shape as the AFS body.
+3. **Search** the AFS body for the position whose stored hashes
+   best match the captured hashes. The comparison metric is
+   summed Hamming distance — for each pair of (captured,
+   stored) hashes in a window, count the bits that differ; sum
+   over the window. The position with the lowest summed Hamming
+   distance is the best match.
+4. **Report** the matched position (in milliseconds from source
+   start). Once a confident match exists, subsequent ticks only
+   need to search locally — the new position is almost certainly
+   within a few hops of the previous one.
+
+**Why this works.** Chromaprint is designed for noise tolerance.
+Bit-level Hamming distance over many hashes washes out
+moderate noise; you can capture through speakers and a phone mic
+and still recognize the source. AFS adds nothing to that
+algorithm — it just packages the hashes with explicit time cues
+and metadata so a player can localize without contacting a
+remote database.
+
+**What AFS doesn't do.** v0.1 expects the captured audio to be
+the *same recording* the AFS file describes (modulo
+re-encoding, noise, and mic capture). It cannot follow a
+*different performance* of the same piece — different orchestras,
+different singers, different tempos produce different
+chromaprint hashes even when sounding "the same." Cross-
+performance matching is a different family of algorithm; see
+[Explorations](#explorations).
+
+## How the listener works
+
+The reference listener (`demo/src/listen.js` + supporting modules)
+is ~400 lines of plain JS. The non-obvious parts:
+
+**Audio capture** (`src/audio-capture.js`) is either microphone
+(`getUserMedia` → `MediaStreamSource`) or a media element
+(`MediaElementSource`). An AudioWorklet drains PCM samples into a
+ring buffer. The matcher tick reads the latest ~2.6 s of samples,
+hands them to the WASM chromaprint fingerprinter, and gets back
+a small array of new hashes.
+
+**Matcher state machine** (`src/listen.js`) tracks position in
+three states:
+
+- **LOST** — no anchor. Any confident match (confidence above
+  `enterThreshold`, default 75 %) anchors us and promotes to
+  TRACKING.
+- **TRACKING** — have an anchor. Each new accepted match
+  refreshes the anchor. Between matches, the displayed position
+  is projected forward at 1× wall-clock (`lastMatchSourceMs +
+  elapsed`). A new match within `CONTINUITY_TOLERANCE_MS` of the
+  projection is accepted normally; one outside that window is
+  treated as a possible JUMP and requires a corroborating
+  second match before moving the anchor (filters out random
+  wrong-cut matches).
+- **Silence gate / LOST timeout** — if the captured audio's peak
+  amplitude stays below `SILENCE_PEAK_THRESHOLD` for
+  `SILENCE_TICKS_BEFORE_LOST` (~2 s), we drop back to LOST. Same
+  if we go `LOST_TIMEOUT_MS` (default 6 s) without any accepted
+  match.
+
+**Forward projection** (`PROJECT_MAX_MS`, default 1000) caps how
+far ahead of the last confident match the displayed position
+will advance. Within that window the position projects forward
+at 1× wall-clock between matcher ticks; past it, the position
+freezes. This handles chromaprint confidence dropouts (where
+the matcher can't lock for a few seconds but the source is still
+playing) without showing wrong cues when the source genuinely
+paused.
+
+**Lock-on time** for a clean source is ~3.5 s — chromaprint
+needs at least 8 hashes to commit to a position, and 8 hashes
+require ~1 s of audio plus the algorithm's 2.6 s analysis-window
+warm-up.
+
+**The building blocks**, end to end:
+
+1. **AFS file reader** — parses the TOML header + body (numeric
+   `time_ms hash` pairs). The format is simple enough to write
+   from the spec in any language; no library needed.
+2. **Audio source** — a stream of PCM samples. Origin is up to
+   the embedding context: a microphone, the audio output of a
+   media file the same process is playing, a system loopback,
+   an audio pipe from another process, etc. AFS doesn't care
+   where the samples come from, only that they're real-time.
+3. **Fingerprinter** — the algorithm declared in the AFS header
+   (chromaprint for v0.1). Libchromaprint has stable bindings
+   for C / Python / Rust / Go / Java and a WASM build for the
+   browser. Feed it the captured PCM at the source's native
+   sample rate; receive back a stream of 32-bit hashes.
+4. **Matcher** — compares captured hashes against the AFS body's
+   stored hashes. The reference implementation in
+   `demo/src/afs-matcher.js` is ~300 lines of plain JS, algorithm-
+   agnostic in shape (`hashes` + `times` arrays in, current
+   position + confidence out), and portable to any language. The
+   inner loop is integer bitcount + min-sum over a window.
+5. **State machine + state-aware position output** — described
+   above. Independent of language and of consumer; whatever
+   shows synced data to the user (subtitle renderer, lighting
+   controller, haptic motor, etc.) just receives the position
+   estimate and acts on it.
+
+Each block can be swapped without touching the others. A
+re-implementation in a different language reuses the same five-
+block structure with that language's chromaprint binding and the
+same matcher state machine. The reference matcher is short
+enough to port directly; the rest is glue.
+
 ## Status
 
 v0.1 release candidate. The AFS parser, matcher, SRT parser,
@@ -114,8 +267,29 @@ modern CDN applies automatically).
 A potential v0.2 migration to Shazam-style landmark fingerprinting
 is documented in `ROADMAP.md` but deferred. v0.1 ships with
 chromaprint because of its existing ecosystem (libchromaprint,
-fpcalc, language bindings) — anyone writing a plugin for VLC, mpv,
-or similar already has a chromaprint library available.
+fpcalc, language bindings) — anyone re-implementing an AFS
+listener already has a chromaprint binding available in most
+mainstream languages.
+
+## Explorations
+
+Two alternative fingerprinting / matching approaches were spiked
+on parallel branches. Neither shipped in v0.1; both are preserved
+with their measurements and code in case the work resumes.
+
+- [`shazam-landmark`](https://github.com/dariodf/afs-tools/tree/shazam-landmark/experiments/landmark)
+  — Wang-2003 landmark fingerprinting (the Shazam algorithm), as
+  a candidate v0.2 algorithm. Same use case as chromaprint
+  (same-source matching) with different noise / latency trade-offs.
+  See [FINDINGS.md](https://github.com/dariodf/afs-tools/blob/shazam-landmark/experiments/landmark/FINDINGS.md).
+- [`chroma-dtw`](https://github.com/dariodf/afs-tools/tree/chroma-dtw/experiments/chroma-dtw)
+  — chroma vectors + dynamic time warping for *cross-performance*
+  alignment. A different problem from AFS v0.1 (different
+  performances of the same piece, not the same recording across
+  devices). Empirically works at ~30 s lock-on; would need score-
+  informed alignment or HMM state tracking to be production-grade.
+  Could become AFS v0.3 or a parallel project.
+  See [FINDINGS.md](https://github.com/dariodf/afs-tools/blob/chroma-dtw/experiments/chroma-dtw/FINDINGS.md).
 
 ## Tools
 
