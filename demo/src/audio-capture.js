@@ -73,6 +73,12 @@ export class AudioCapture {
         echoCancellation: false,
         noiseSuppression: false,
         autoGainControl: false,
+        // Safari/iOS 16.4+ adds a separate voice-isolation pass that
+        // noiseSuppression: false does not always cover.
+        voiceIsolation: false,
+        // Some devices return stereo by default; the worklet downmixes
+        // anyway, but being explicit avoids an unnecessary step.
+        channelCount: 1,
       },
     });
     this.source = this.audioContext.createMediaStreamSource(this.stream);
