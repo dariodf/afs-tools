@@ -21,10 +21,39 @@ fingerprints + a stream of synced text.
 
 # Different language / model
 ./transcribe-generate --language es --model medium telenovela.mp4
+
+# You already have the transcript — align it instead of transcribing
+./transcribe-generate --transcript screenplay.txt movie.mp4
+./transcribe-generate --transcript existing.srt movie.mp4
 ```
 
 Produces `<basename>.srt` and `<basename>.afs` next to the input
 file.
+
+## --transcript: align an authoritative transcript
+
+If you already have the words — an official screenplay, known song
+lyrics, an existing SRT with bad timings — feed them in with
+`--transcript PATH` and the script skips Whisper's ASR stage,
+running only WhisperX's wav2vec2 forced-alignment.
+
+Alignment quality is excellent because the model only has to find
+*when* each known word occurs, not *what* was said. Whisper mishears
+words; alignment doesn't (it works with the text you gave it).
+
+Accepted transcript formats:
+
+- **`.srt`** — segmentation and rough timings are used as initial
+  estimates; alignment refines them. Existing-but-drifted SRTs are
+  the canonical use case.
+- **anything else** — treated as plain text. Sentences are split
+  heuristically; initial timings are distributed evenly across the
+  audio. The alignment model is robust to large initial offsets, so
+  this works even if the text has no timing info at all.
+
+This is the preferred workflow for karaoke and any case where the
+authoritative text exists — better than transcribing and then
+hand-editing.
 
 ## Setup
 
@@ -48,13 +77,23 @@ user cache.
 
 WhisperX is tuned for speech and produces excellent results for
 dialogue, podcasts, lectures, and similar. For **sung** content
-(karaoke), expect 1–2 misheard words per phrase plus occasional
-dropped soft passages. The word-level *timings* are still
+(karaoke), Whisper's ASR mishears 1–2 words per phrase and
+sometimes drops soft passages. The word-level *timings* are still
 accurate; what's unreliable is the *text*.
 
-Recommended karaoke workflow: run `transcribe-generate`, then open
-the produced `.srt` in any editor and replace the lyric text with
-the canonical lyrics, keeping the timings. The Silent Night demo
-content in [`demo/content/`](../../demo/content/) was authored
-this way; `demo/content/silent-night.srt` is what the corrected
-pair looks like.
+The clean fix is to skip ASR entirely:
+
+```bash
+./transcribe-generate --transcript silent-night.txt silent-night.mp3
+```
+
+Paste the canonical lyrics into a text file (one sentence per line
+is fine; the alignment model handles segmentation) and pass them
+in. The alignment stage runs against your text instead of guessing,
+producing a `.srt` with both correct lyrics *and* correct timings
+in one shot.
+
+The Silent Night demo content in
+[`demo/content/`](../../demo/content/) was originally authored by
+running full transcription and then hand-editing the lyric text;
+`--transcript` is the equivalent without the hand-edit step.

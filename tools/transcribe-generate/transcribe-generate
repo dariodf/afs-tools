@@ -19,6 +19,17 @@
 #   --model SIZE         WhisperX model: tiny | base | small | medium |
 #                        large-v3   (default: small)
 #   --language CODE      ISO-639-1 language code (default: en)
+#   --transcript PATH    Skip Whisper ASR. Use the text at PATH as the
+#                        transcript and run only WhisperX's forced-
+#                        alignment stage. Best result when you have an
+#                        authoritative transcript (official screenplay,
+#                        known lyrics) — alignment quality is excellent
+#                        because the model only finds when each known
+#                        word occurs, instead of guessing words.
+#                        PATH may be a .srt (segmentation + rough
+#                        timings used as initial estimates) or plain
+#                        text (sentence-split, timings distributed
+#                        evenly; alignment refines them).
 #   --no-srt             Skip transcription; just run afs-generate
 #   --no-afs             Just transcribe; skip AFS generation
 #   --output-dir DIR     Output directory (default: same as input file)
@@ -49,6 +60,7 @@ DO_AFS=1
 OUTPUT_DIR=""
 QUIET=0
 INPUT=""
+TRANSCRIPT=""
 
 usage() {
   # awk is portable across BSD/GNU here; sed's `1,/^$/p` evaluates
@@ -67,6 +79,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --model)        MODEL="$2"; shift 2;;
     --language)     LANGUAGE="$2"; shift 2;;
+    --transcript)   TRANSCRIPT="$2"; shift 2;;
     --no-srt)       DO_SRT=0; shift;;
     --no-afs)       DO_AFS=0; shift;;
     --output-dir)   OUTPUT_DIR="$2"; shift 2;;
@@ -99,6 +112,17 @@ fi
 if [[ "$DO_SRT" -eq 0 && "$DO_AFS" -eq 0 ]]; then
   echo "transcribe-generate: --no-srt and --no-afs together would do nothing" >&2
   exit 1
+fi
+
+if [[ -n "$TRANSCRIPT" ]]; then
+  if [[ "$DO_SRT" -eq 0 ]]; then
+    echo "transcribe-generate: --transcript and --no-srt are incompatible (--transcript writes the SRT)" >&2
+    exit 1
+  fi
+  if [[ ! -f "$TRANSCRIPT" ]]; then
+    echo "transcribe-generate: transcript not found: $TRANSCRIPT" >&2
+    exit 1
+  fi
 fi
 
 # Resolve paths. Tools live at tools/<name>/<name>, so the repo
@@ -134,19 +158,65 @@ AFS_PATH="$OUTPUT_DIR/$INPUT_STEM.afs"
 # -----------------------------------------------------------------
 
 if [[ "$DO_SRT" -eq 1 ]]; then
-  # Locate WhisperX. Prefer the project-local venv (tools/README and
-  # the project README walk users through creating one) so that
-  # `transcribe-generate` doesn't suddenly behave differently when
-  # the user's shell PATH changes.
-  WHISPERX_BIN=""
-  if [[ -x "$REPO_ROOT/.venv-whisperx/bin/whisperx" ]]; then
-    WHISPERX_BIN="$REPO_ROOT/.venv-whisperx/bin/whisperx"
-    log "using WhisperX from $REPO_ROOT/.venv-whisperx/"
-  elif command -v whisperx >/dev/null 2>&1; then
-    WHISPERX_BIN="$(command -v whisperx)"
-    log "using WhisperX from PATH: $WHISPERX_BIN"
+  if [[ -n "$TRANSCRIPT" ]]; then
+    # ---------------------------------------------------------------
+    # Alignment-only path: skip ASR, use the caller's transcript.
+    # ---------------------------------------------------------------
+    # The alignment helper imports `whisperx`, so it has to run under
+    # the venv's Python. We don't fall back to system Python because
+    # globally-installed WhisperX is rare and the venv path is what
+    # the README tells users to set up.
+    VENV_PYTHON="$REPO_ROOT/.venv-whisperx/bin/python"
+    if [[ ! -x "$VENV_PYTHON" ]]; then
+      cat >&2 <<EOF
+transcribe-generate: --transcript needs the project venv at
+$REPO_ROOT/.venv-whisperx/. Set it up with:
+
+  cd $REPO_ROOT
+  python3 -m venv .venv-whisperx
+  .venv-whisperx/bin/pip install --upgrade pip wheel
+  .venv-whisperx/bin/pip install whisperx
+EOF
+      exit 1
+    fi
+
+    log "aligning transcript $TRANSCRIPT to $INPUT_ABS → $SRT_PATH (lang=$LANGUAGE)"
+    ALIGN_HELPER="$SCRIPT_DIR/align_transcript.py"
+    if [[ ! -f "$ALIGN_HELPER" ]]; then
+      echo "transcribe-generate: align_transcript.py missing at $ALIGN_HELPER" >&2
+      exit 1
+    fi
+
+    ALIGN_ARGS=(
+      "$ALIGN_HELPER"
+      --audio "$INPUT_ABS"
+      --transcript "$TRANSCRIPT"
+      --language "$LANGUAGE"
+      --output "$SRT_PATH"
+    )
+    if [[ "$QUIET" -eq 1 ]]; then
+      "$VENV_PYTHON" "${ALIGN_ARGS[@]}" >/dev/null 2>&1
+    else
+      "$VENV_PYTHON" "${ALIGN_ARGS[@]}"
+    fi
+    log "wrote $SRT_PATH"
   else
-    cat >&2 <<'EOF'
+    # ---------------------------------------------------------------
+    # Full-transcription path: Whisper ASR + alignment via the CLI.
+    # ---------------------------------------------------------------
+    # Locate WhisperX. Prefer the project-local venv (tools/README and
+    # the project README walk users through creating one) so that
+    # `transcribe-generate` doesn't suddenly behave differently when
+    # the user's shell PATH changes.
+    WHISPERX_BIN=""
+    if [[ -x "$REPO_ROOT/.venv-whisperx/bin/whisperx" ]]; then
+      WHISPERX_BIN="$REPO_ROOT/.venv-whisperx/bin/whisperx"
+      log "using WhisperX from $REPO_ROOT/.venv-whisperx/"
+    elif command -v whisperx >/dev/null 2>&1; then
+      WHISPERX_BIN="$(command -v whisperx)"
+      log "using WhisperX from PATH: $WHISPERX_BIN"
+    else
+      cat >&2 <<'EOF'
 transcribe-generate: WhisperX not found.
 
 Install it locally in a virtualenv so this script can find it:
@@ -164,39 +234,40 @@ Alternative: install WhisperX globally so it lands on your PATH.
 
 After installing, re-run transcribe-generate.
 EOF
-    exit 1
+      exit 1
+    fi
+
+    log "transcribing $INPUT → $SRT_PATH (model=$MODEL, lang=$LANGUAGE)"
+
+    # Run in a temp directory so WhisperX's intermediate files (.json,
+    # .tsv, .txt, .vtt) don't clutter the user's content dir. We move
+    # just the .srt out.
+    WORK_DIR="$(mktemp -d)"
+    trap 'rm -rf "$WORK_DIR"' EXIT
+
+    WHISPERX_ARGS=(
+      "$INPUT_ABS"
+      --model "$MODEL"
+      --language "$LANGUAGE"
+      --output_format srt
+      --output_dir "$WORK_DIR"
+      --compute_type int8
+    )
+    if [[ "$QUIET" -eq 1 ]]; then
+      "$WHISPERX_BIN" "${WHISPERX_ARGS[@]}" >/dev/null 2>&1
+    else
+      "$WHISPERX_BIN" "${WHISPERX_ARGS[@]}"
+    fi
+
+    PRODUCED_SRT="$WORK_DIR/$INPUT_STEM.srt"
+    if [[ ! -f "$PRODUCED_SRT" ]]; then
+      echo "transcribe-generate: WhisperX did not produce expected SRT at $PRODUCED_SRT" >&2
+      exit 1
+    fi
+
+    mv "$PRODUCED_SRT" "$SRT_PATH"
+    log "wrote $SRT_PATH"
   fi
-
-  log "transcribing $INPUT → $SRT_PATH (model=$MODEL, lang=$LANGUAGE)"
-
-  # Run in a temp directory so WhisperX's intermediate files (.json,
-  # .tsv, .txt, .vtt) don't clutter the user's content dir. We move
-  # just the .srt out.
-  WORK_DIR="$(mktemp -d)"
-  trap 'rm -rf "$WORK_DIR"' EXIT
-
-  WHISPERX_ARGS=(
-    "$INPUT_ABS"
-    --model "$MODEL"
-    --language "$LANGUAGE"
-    --output_format srt
-    --output_dir "$WORK_DIR"
-    --compute_type int8
-  )
-  if [[ "$QUIET" -eq 1 ]]; then
-    "$WHISPERX_BIN" "${WHISPERX_ARGS[@]}" >/dev/null 2>&1
-  else
-    "$WHISPERX_BIN" "${WHISPERX_ARGS[@]}"
-  fi
-
-  PRODUCED_SRT="$WORK_DIR/$INPUT_STEM.srt"
-  if [[ ! -f "$PRODUCED_SRT" ]]; then
-    echo "transcribe-generate: WhisperX did not produce expected SRT at $PRODUCED_SRT" >&2
-    exit 1
-  fi
-
-  mv "$PRODUCED_SRT" "$SRT_PATH"
-  log "wrote $SRT_PATH"
 fi
 
 # -----------------------------------------------------------------
@@ -226,11 +297,13 @@ if [[ "$QUIET" -eq 0 ]]; then
   if [[ "$DO_AFS" -eq 1 ]]; then
     echo "  AFS: $AFS_PATH"
   fi
-  if [[ "$DO_SRT" -eq 1 ]]; then
+  if [[ "$DO_SRT" -eq 1 && -z "$TRANSCRIPT" ]]; then
     echo ""
     echo "Tip: review the .srt against your source material. WhisperX"
     echo "  is accurate on speech but loses 1-2 words per phrase on"
     echo "  sung content. Replace the text with canonical lyrics where"
-    echo "  needed — the timings are usable as-is."
+    echo "  needed — the timings are usable as-is. (Or re-run with"
+    echo "  --transcript path.txt to align an authoritative transcript"
+    echo "  in one shot.)"
   fi
 fi
