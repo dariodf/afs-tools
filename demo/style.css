@@ -241,28 +241,39 @@ header {
 }
 
 .masthead-links {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--fg-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--fg);
   margin: 0;
   white-space: nowrap;
 }
 
 .masthead-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
   color: inherit;
-  border-bottom: 1px dotted currentColor;
+  text-decoration: none;
+  padding: 0.4em 0.85em;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease;
 }
 
-.masthead-links a:hover {
+.masthead-links a:hover,
+.masthead-links a:focus-visible {
   color: var(--accent);
-  border-bottom-style: solid;
+  border-color: var(--accent);
 }
 
-.masthead-links span {
-  opacity: 0.5;
-  margin: 0 0.3em;
+.masthead-links .gh-icon {
+  width: 1.05em;
+  height: 1.05em;
+  flex: none;
 }
 
 /* -----------------------------------------------------------------------

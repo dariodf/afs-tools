@@ -114,7 +114,7 @@ function maybeFinishPicking() {
   els.pick.hidden = true;
   els.startBtn.hidden = false;
   els.pickStatus.textContent = "";
-  setStatus("tap to listen");
+  setStatus("");
 }
 
 async function preloadFromUrl(afsUrlStr, srtUrlStr) {
@@ -127,7 +127,7 @@ async function preloadFromUrl(afsUrlStr, srtUrlStr) {
   afsUrl = afsUrlStr;
   els.pick.hidden = true;
   els.startBtn.hidden = false;
-  setStatus("tap to listen");
+  setStatus("");
 }
 
 els.pickAfs.addEventListener("change", (e) => {
